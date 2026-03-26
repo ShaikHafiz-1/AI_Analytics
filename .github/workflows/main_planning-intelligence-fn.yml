@@ -4,10 +4,8 @@
 name: Build and deploy Python project to Azure Function App - planning-intelligence-fn
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    # Disabled - use deploy.yml instead
 
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: 'planning_intelligence'
