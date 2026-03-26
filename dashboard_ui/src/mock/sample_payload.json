@@ -1,0 +1,54 @@
+{
+  "planningHealth": { "score": 72, "status": "Moderate" },
+  "forecastNew": 4850,
+  "forecastOld": 3900,
+  "trendDelta": 950,
+  "trendDirection": "increasing",
+  "totalRecords": 120,
+  "changedRecordCount": 34,
+  "unchangedRecordCount": 86,
+  "newRecordCount": 3,
+  "changeDrivers": {
+    "quantityChanged": 20,
+    "supplierChanged": 6,
+    "designChanged": 4,
+    "rojChanged": 8
+  },
+  "datacenterSummary": [
+    { "locationId": "LOC001", "dcSite": "DC-WEST", "total": 60, "changed": 18 },
+    { "locationId": "LOC002", "dcSite": "DC-EAST", "total": 40, "changed": 12 },
+    { "locationId": "LOC003", "dcSite": "DC-SOUTH", "total": 20, "changed": 4 }
+  ],
+  "materialGroupSummary": [
+    { "materialGroup": "PUMP", "total": 50, "changed": 18, "qtyChanged": 10, "designChanged": 3, "supplierChanged": 2 },
+    { "materialGroup": "VALVE", "total": 40, "changed": 10, "qtyChanged": 6, "designChanged": 1, "supplierChanged": 2 },
+    { "materialGroup": "MOTOR", "total": 30, "changed": 6, "qtyChanged": 4, "designChanged": 0, "supplierChanged": 2 }
+  ],
+  "supplierSummary": [
+    { "supplier": "SUP-A", "previousSupplier": "SUP-B", "affectedMaterials": ["MAT-100", "MAT-101"], "riskLevel": "Supplier Change Risk" },
+    { "supplier": "SUP-C", "previousSupplier": "SUP-C", "affectedMaterials": ["MAT-200"], "riskLevel": "Normal" }
+  ],
+  "designSummary": [
+    { "materialId": "MAT-100", "locationId": "LOC001", "materialGroup": "PUMP", "bodPrevious": "v2", "bodCurrent": "v3", "ffPrevious": "FF-A", "ffCurrent": "FF-B", "riskLevel": "Design Change Risk" }
+  ],
+  "rojSummary": [
+    { "materialId": "MAT-102", "locationId": "LOC001", "rojPrevious": "2026-06-01", "rojCurrent": "2026-07-15", "rojReasonCode": "DEMAND_SHIFT" }
+  ],
+  "riskSummary": {
+    "highestRiskLevel": "Design Change Risk",
+    "riskBreakdown": { "Design Change Risk": 4, "Supplier Change Risk": 6, "High Demand Spike": 2 },
+    "highRiskCount": 12,
+    "highRiskRecords": []
+  },
+  "aiInsight": "Planning is moderately active with 28% of records changed this cycle. Forecast demand is trending upward with a net delta of +950 units. Key drivers include: 20 quantity adjustments, 6 supplier changes, 4 design changes, 8 schedule shifts. Location LOC001 accounts for the highest concentration of changes. Material group PUMP is the most impacted equipment category. Risk level is elevated: Design Change Risk.",
+  "rootCause": "The primary driver of change is Quantity with 20 affected records. Location LOC001 is the main source of planning movement. Equipment category PUMP is driving the most change volume. Supplier SUP-A is involved in the supplier-related changes. Design changes (BOD version or Form Factor) indicate potential specification updates that may affect procurement. The upward forecast trend (+950) may reflect demand growth or buffer additions. Risk classification 'Design Change Risk' warrants immediate planner review.",
+  "recommendedActions": [
+    "Review BOD version and Form Factor changes with engineering team before procurement.",
+    "Validate supplier transition plan for supplier SUP-A to avoid supply disruption.",
+    "Review ROJ date shifts with supply chain team to assess delivery risk.",
+    "Confirm capacity availability to support increasing forecast demand.",
+    "Prioritize planner review for location LOC001 — highest change concentration."
+  ],
+  "detailRecords": [],
+  "filters": { "locationId": null, "materialGroup": null }
+}
