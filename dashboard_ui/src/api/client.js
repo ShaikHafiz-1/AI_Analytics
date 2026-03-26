@@ -7,7 +7,7 @@ const API_URL = process.env.REACT_APP_API_URL || "http://localhost:7071/api";
 const API_KEY = process.env.REACT_APP_API_KEY || "";
 
 export async function fetchDashboard(payload) {
-  const res = await fetch(`${API_URL}/planning-dashboard${API_KEY ? `?code=${API_KEY}` : ""}`, {
+  const res = await fetch(`${API_URL}/planning-dashboard-v2${API_KEY ? `?code=${API_KEY}` : ""}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

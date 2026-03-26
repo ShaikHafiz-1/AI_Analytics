@@ -25,10 +25,15 @@ export default function TrendCard({ trendDirection, changeDrivers, totalRecords,
         <div className={`h-1.5 rounded-full ${style.color.replace("text-", "bg-")}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="grid grid-cols-2 gap-2 mt-1">
-        {Object.entries(changeDrivers || {}).map(([key, val]) => (
-          <div key={key} className="flex justify-between text-xs text-gray-400">
-            <span className="capitalize">{key.replace("Changed", "")}</span>
-            <span className="text-white font-medium">{val}</span>
+        {[
+          ["Quantity", changeDrivers?.quantityChangedCount],
+          ["Supplier", changeDrivers?.supplierChangedCount],
+          ["Design", changeDrivers?.designChangedCount],
+          ["Schedule", changeDrivers?.rojChangedCount],
+        ].map(([label, val]) => (
+          <div key={label} className="flex justify-between text-xs text-gray-400">
+            <span>{label}</span>
+            <span className="text-white font-medium">{val ?? 0}</span>
           </div>
         ))}
       </div>

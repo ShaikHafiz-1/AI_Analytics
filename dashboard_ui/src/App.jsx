@@ -16,7 +16,7 @@ import AIInsightCard from "./components/AIInsightCard";
 import RootCauseCard from "./components/RootCauseCard";
 import ActionsPanel from "./components/ActionsPanel";
 
-const USE_MOCK = process.env.REACT_APP_USE_MOCK === "true" || !process.env.REACT_APP_API_URL;
+const USE_MOCK = true; // overridden by REACT_APP_USE_MOCK=false in .env
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -24,11 +24,15 @@ export default function App() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (USE_MOCK) {
-      // Use sample payload for local dev / demo
-      setTimeout(() => { setData(samplePayload); setLoading(false); }, 600);
+    // Load mock data directly — set REACT_APP_USE_MOCK=false to use live API
+    const useMock = process.env.REACT_APP_USE_MOCK !== "false";
+
+    if (useMock) {
+      setData(samplePayload);
+      setLoading(false);
       return;
     }
+
     fetchDashboard({ query_type: "summary" })
       .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
@@ -51,11 +55,12 @@ export default function App() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-            data.planningHealth?.status === "Healthy" ? "bg-green-900/30 text-accent-green" :
-            data.planningHealth?.status === "Moderate" ? "bg-yellow-900/30 text-accent-yellow" :
+            data.status === "Healthy" ? "bg-green-900/30 text-accent-green" :
+            data.status === "Stable" ? "bg-blue-900/30 text-accent-blue" :
+            data.status === "At Risk" ? "bg-yellow-900/30 text-accent-yellow" :
             "bg-red-900/30 text-accent-red"
           }`}>
-            {data.planningHealth?.status}
+            {data.status}
           </span>
         </div>
       </header>
@@ -64,7 +69,7 @@ export default function App() {
 
         {/* Row 1: Health + Forecast + Trend */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <PlanningHealthCard score={data.planningHealth?.score} status={data.planningHealth?.status} />
+          <PlanningHealthCard score={data.planningHealth} status={data.status} />
           <ForecastCard
             forecastNew={data.forecastNew}
             forecastOld={data.forecastOld}
@@ -73,7 +78,7 @@ export default function App() {
           />
           <TrendCard
             trendDirection={data.trendDirection}
-            changeDrivers={data.changeDrivers}
+            changeDrivers={data.riskSummary}
             totalRecords={data.totalRecords}
             changedRecordCount={data.changedRecordCount}
           />
