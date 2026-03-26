@@ -11,6 +11,7 @@ env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: planning_intelligence
   PYTHON_VERSION: '3.13'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SCM_URL: planning-intelligence-fn-bdaue0b6f7cxcvf6.scm.southindia-01.azurewebsites.net
 
 jobs:
   build:
