@@ -63,16 +63,11 @@ jobs:
           unzip release.zip -d deploy
           rm release.zip
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_D355387EB64E45BE82E60445E8071CAB }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB70217F68FB4CC38FA3C938095B618C }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_96410DCC7FDC4814A8DA15C4DC920677 }}
-
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
           slot-name: 'Production'
           package: deploy
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          scm-do-build-during-deployment: false
