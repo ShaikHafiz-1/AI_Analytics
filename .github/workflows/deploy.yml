@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/dashboard-ui
   workflow_dispatch:
 
 env:
@@ -11,7 +12,7 @@ env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: planning_intelligence
   PYTHON_VERSION: '3.13'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  SCM_URL: planning-intelligence-fn-bdaue0b6f7cxcvf6.scm.southindia-01.azurewebsites.net
+  RESOURCE_GROUP: rg-ibp-s
 
 jobs:
   build:
@@ -36,9 +37,12 @@ jobs:
 
       - name: Zip artifact for deployment
         run: |
-          pushd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          zip -r ../release.zip . --exclude "tests/*" --exclude "__pycache__/*" --exclude "*.pyc"
-          popd
+          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          zip -r ../release.zip . \
+            --exclude "tests/*" \
+            --exclude "__pycache__/*" \
+            --exclude "*.pyc" \
+            --exclude "local.settings.json"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -59,16 +63,20 @@ jobs:
         with:
           name: python-app
 
-      - name: Unzip artifact
-        run: |
-          unzip release.zip -d deploy
-          rm release.zip
-
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
+      - name: Login to Azure via OIDC
+        uses: azure/login@v2
         with:
-          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          slot-name: 'Production'
-          package: deploy
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-          scm-do-build-during-deployment: false
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_D355387EB64E45BE82E60445E8071CAB }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_DB70217F68FB4CC38FA3C938095B618C }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_96410DCC7FDC4814A8DA15C4DC920677 }}
+
+      - name: Deploy via Azure CLI zip deploy
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az functionapp deployment source config-zip \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+              --src release.zip \
+              --build-remote true
