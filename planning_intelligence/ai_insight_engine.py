@@ -241,8 +241,16 @@ def _deterministic_fallback(
 ) -> dict:
     """Full deterministic narrative when LLM is unavailable."""
     parts = []
-    total_changed = (ctx.quantity_changed_count + ctx.supplier_changed_count +
-                     ctx.design_changed_count + ctx.roj_changed_count)
+    # Use matched_records as the changed count proxy — driver counts can overlap
+    total_changed = ctx.total_records - (ctx.total_records - ctx.matched_records)
+    # Simpler: derive from non-zero drivers, capped at total
+    driver_max = max(
+        ctx.quantity_changed_count,
+        ctx.supplier_changed_count,
+        ctx.design_changed_count,
+        ctx.roj_changed_count,
+    )
+    total_changed = min(driver_max, ctx.total_records)
     pct = round(total_changed / ctx.total_records * 100, 1) if ctx.total_records else 0
 
     parts.append(f"{pct}% of records changed this planning cycle ({total_changed} of {ctx.total_records}).")
