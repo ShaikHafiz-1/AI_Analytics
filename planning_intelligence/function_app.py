@@ -25,6 +25,7 @@ from trend_analyzer import (
 )
 from dashboard_builder import build_dashboard_response
 from response_builder import build_response
+from snapshot_store import load_snapshot, snapshot_exists, get_last_updated_time
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -191,9 +192,12 @@ def planning_dashboard(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="planning-dashboard-v2", methods=["POST"])
 def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Hybrid AI dashboard endpoint.
-    Uses MCP tool layer + Azure OpenAI (with deterministic fallback).
-    Returns full UI-ready dashboard JSON.
+    Hybrid AI dashboard endpoint with mode switching.
+
+    Modes:
+      "cached" (default) — returns stored daily snapshot instantly
+      "live"             — reads current_rows/previous_rows from request body
+      "sharepoint"       — reads directly from SharePoint (no rows needed)
     """
     logging.info("Planning Dashboard v2 triggered.")
 
@@ -202,17 +206,51 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         return _error("Invalid JSON body.", 400)
 
-    current_rows: List[dict] = body.get("current_rows", [])
-    previous_rows: List[dict] = body.get("previous_rows", [])
-    snapshots_input: List[dict] = body.get("snapshots", [])
+    mode: str = body.get("mode", "cached").lower()
     location_id: Optional[str] = body.get("location_id")
     material_group: Optional[str] = body.get("material_group")
     recurring_threshold: int = int(body.get("recurring_threshold", 3))
 
-    if not current_rows:
-        return _error("'current_rows' is required.", 400)
+    # ----------------------------------------------------------------
+    # CACHED MODE — return snapshot immediately
+    # ----------------------------------------------------------------
+    if mode == "cached":
+        snap = load_snapshot()
+        if snap:
+            # Apply filters to detail records if requested
+            if location_id or material_group:
+                snap = _filter_snapshot(snap, location_id, material_group)
+            return func.HttpResponse(
+                json.dumps(snap, default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+        # No snapshot yet — fall through to live
+        logging.info("No snapshot found, falling back to live mode.")
+        mode = "live"
 
-    # Analytics pipeline
+    # ----------------------------------------------------------------
+    # SHAREPOINT MODE — load directly from SharePoint
+    # ----------------------------------------------------------------
+    if mode == "sharepoint":
+        try:
+            from sharepoint_loader import load_current_previous_from_sharepoint, SharePointError
+            current_rows, previous_rows = load_current_previous_from_sharepoint()
+        except Exception as e:
+            return _error(f"SharePoint load failed: {str(e)}", 500)
+        snapshots_input = []
+
+    # ----------------------------------------------------------------
+    # LIVE MODE — rows provided in request body
+    # ----------------------------------------------------------------
+    else:
+        current_rows: List[dict] = body.get("current_rows", [])
+        previous_rows: List[dict] = body.get("previous_rows", [])
+        snapshots_input: List[dict] = body.get("snapshots", [])
+        if not current_rows:
+            return _error("'current_rows' is required for live mode.", 400)
+
+    # Analytics pipeline (shared by live + sharepoint)
     current_records = normalize_rows(current_rows, is_current=True)
     previous_records = normalize_rows(previous_rows, is_current=False)
     current_filtered = filter_records(current_records, location_id, material_group)
@@ -223,11 +261,56 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     if snapshots_input:
         trends = analyze_trends(snapshots_input, location_id, material_group, recurring_threshold)
 
-    # MCP + AI pipeline
-    result = build_response(compared, trends, location_id, material_group)
+    result = build_response(
+        compared, trends, location_id, material_group,
+        data_mode=mode,
+    )
 
     return func.HttpResponse(
         json.dumps(result, default=str),
         mimetype="application/json",
         status_code=200,
     )
+
+
+@app.route(route="daily-refresh", methods=["POST"])
+def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Manually triggers the daily SharePoint refresh and saves a snapshot.
+    Useful for testing or on-demand cache refresh.
+    """
+    logging.info("Manual daily refresh triggered.")
+    try:
+        from run_daily_refresh import run_daily_refresh
+        result = run_daily_refresh()
+        return func.HttpResponse(
+            json.dumps({
+                "status": "ok",
+                "lastRefreshedAt": result.get("lastRefreshedAt"),
+                "totalRecords": result.get("totalRecords"),
+                "changedRecordCount": result.get("changedRecordCount"),
+                "planningHealth": result.get("planningHealth"),
+            }, default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        return _error(f"Daily refresh failed: {str(e)}", 500)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _filter_snapshot(snap: dict, location_id: Optional[str], material_group: Optional[str]) -> dict:
+    """Filter detailRecords in a cached snapshot by location/material group."""
+    if not snap.get("detailRecords"):
+        return snap
+    loc = location_id.strip().lower() if location_id else None
+    mg = material_group.strip().lower() if material_group else None
+    snap["detailRecords"] = [
+        r for r in snap["detailRecords"]
+        if (not loc or r.get("locationId", "").lower() == loc)
+        and (not mg or r.get("materialGroup", "").lower() == mg)
+    ]
+    return snap

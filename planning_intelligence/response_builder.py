@@ -22,6 +22,8 @@ def build_response(
     trends: List[TrendRecord],
     location_id: Optional[str] = None,
     material_group: Optional[str] = None,
+    data_mode: str = "live",
+    last_refreshed_at: Optional[str] = None,
 ) -> dict:
     """
     Full pipeline:
@@ -56,7 +58,14 @@ def build_response(
     material_groups = sorted({r.material_group for r in compared if r.material_group})
     dc_count = len({r.location_id for r in compared if r.location_id})
 
+    from datetime import datetime, timezone
+    now = last_refreshed_at or datetime.now(timezone.utc).isoformat()
+
     return {
+        # Mode metadata
+        "dataMode": data_mode,
+        "lastRefreshedAt": now,
+
         # Health
         "planningHealth": health_score,
         "status": _health_label(health_score),
