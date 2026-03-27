@@ -8,9 +8,15 @@ Required environment variables:
   SHAREPOINT_TENANT_ID
   SHAREPOINT_CLIENT_ID
   SHAREPOINT_CLIENT_SECRET
-  SHAREPOINT_SITE_URL          e.g. https://contoso.sharepoint.com/sites/planning
+  SHAREPOINT_SITE_URL          e.g. https://microsoft.sharepoint.com/teams/COI-ConstructionEngineering
+
+  Option A — by file path:
   SHAREPOINT_CURRENT_FILE      e.g. /Shared Documents/planning/current.xlsx
   SHAREPOINT_PREVIOUS_FILE     e.g. /Shared Documents/planning/previous.xlsx
+
+  Option B — by document GUID (preferred when filenames change monthly):
+  SHAREPOINT_CURRENT_GUID      e.g. 64CA35FA-D4F2-4574-B61F-3427AAAF3B51
+  SHAREPOINT_PREVIOUS_GUID     e.g. 8C6E67F7-0E0D-4267-B45D-FA5728DC2DA7
 """
 import io
 import os
@@ -37,17 +43,27 @@ COLUMN_ALIASES = {
 
 def load_current_previous_from_sharepoint() -> tuple:
     """
-    Downloads current.xlsx and previous.xlsx from SharePoint.
+    Downloads current and previous Excel files from SharePoint.
+    Supports two modes:
+    - GUID mode: uses SHAREPOINT_CURRENT_GUID / SHAREPOINT_PREVIOUS_GUID
+    - Path mode: uses SHAREPOINT_CURRENT_FILE / SHAREPOINT_PREVIOUS_FILE
     Returns (current_rows, previous_rows) as list[dict].
-    Raises SharePointError on any failure.
     """
     token = _get_access_token()
     site_url = _require_env("SHAREPOINT_SITE_URL").rstrip("/")
-    current_path = _require_env("SHAREPOINT_CURRENT_FILE")
-    previous_path = _require_env("SHAREPOINT_PREVIOUS_FILE")
 
-    current_bytes = download_sharepoint_file(token, site_url, current_path)
-    previous_bytes = download_sharepoint_file(token, site_url, previous_path)
+    # Prefer GUID mode — works even when filenames change monthly
+    current_guid = os.environ.get("SHAREPOINT_CURRENT_GUID", "").strip()
+    previous_guid = os.environ.get("SHAREPOINT_PREVIOUS_GUID", "").strip()
+
+    if current_guid and previous_guid:
+        current_bytes = download_by_guid(token, site_url, current_guid)
+        previous_bytes = download_by_guid(token, site_url, previous_guid)
+    else:
+        current_path = _require_env("SHAREPOINT_CURRENT_FILE")
+        previous_path = _require_env("SHAREPOINT_PREVIOUS_FILE")
+        current_bytes = download_sharepoint_file(token, site_url, current_path)
+        previous_bytes = download_sharepoint_file(token, site_url, previous_path)
 
     current_df = load_excel_from_bytes(current_bytes, label="current")
     previous_df = load_excel_from_bytes(previous_bytes, label="previous")
@@ -102,7 +118,43 @@ def _get_access_token() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Download file
+# Step 2: Download file by GUID
+# ---------------------------------------------------------------------------
+
+def download_by_guid(token: str, site_url: str, item_id: str) -> bytes:
+    """
+    Downloads a file from SharePoint using its document GUID/item ID.
+    Works regardless of filename — ideal for monthly-renamed files.
+    """
+    try:
+        import requests
+    except ImportError:
+        raise SharePointError("requests package not installed.")
+
+    from urllib.parse import urlparse
+    parsed = urlparse(site_url)
+    hostname = parsed.netloc
+    site_path = parsed.path.rstrip("/")
+
+    graph_url = (
+        f"https://graph.microsoft.com/v1.0/sites/{hostname}:{site_path}"
+        f":/drive/items/{item_id}/content"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        resp = requests.get(graph_url, headers=headers, timeout=30)
+        if resp.status_code == 404:
+            raise SharePointError(f"Document not found with ID: {item_id}")
+        resp.raise_for_status()
+        logger.info(f"Downloaded document {item_id} ({len(resp.content)} bytes)")
+        return resp.content
+    except requests.RequestException as e:
+        raise SharePointError(f"Failed to download document {item_id}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Download file by path
 # ---------------------------------------------------------------------------
 
 def download_sharepoint_file(token: str, site_url: str, file_path: str) -> bytes:

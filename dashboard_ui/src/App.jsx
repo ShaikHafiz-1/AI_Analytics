@@ -54,12 +54,21 @@ export default function App() {
     <div className="min-h-screen bg-bg text-white">
       {/* Header */}
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-white">Planning Intelligence</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {data.filters?.locationId ? `Location: ${data.filters.locationId}` : "All Locations"}
-            {data.filters?.materialGroup ? ` · Group: ${data.filters.materialGroup}` : ""}
-          </p>
+        <div className="flex items-center gap-3">
+          {/* Microsoft Logo */}
+          <svg width="24" height="24" viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="11" height="11" fill="#f25022"/>
+            <rect x="12" y="0" width="11" height="11" fill="#7fba00"/>
+            <rect x="0" y="12" width="11" height="11" fill="#00a4ef"/>
+            <rect x="12" y="12" width="11" height="11" fill="#ffb900"/>
+          </svg>
+          <div>
+            <h1 className="text-lg font-semibold text-white">Planning Intelligence</h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {data.filters?.locationId ? `Location: ${data.filters.locationId}` : "All Locations"}
+              {data.filters?.materialGroup ? ` · Group: ${data.filters.materialGroup}` : ""}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-xs px-2 py-1 rounded-full font-medium ${
