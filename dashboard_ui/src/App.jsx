@@ -33,9 +33,17 @@ export default function App() {
       return;
     }
 
-    fetchDashboard({ query_type: "summary" })
+    fetchDashboard({
+        mode: "live",
+        current_rows: samplePayload._current_rows || [],
+        previous_rows: samplePayload._previous_rows || [],
+      })
       .then(d => { setData(d); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
+      .catch(() => {
+        // Fallback to mock if live API call fails
+        setData(samplePayload);
+        setLoading(false);
+      });
   }, []);
 
   if (loading) return <LoadingState />;
