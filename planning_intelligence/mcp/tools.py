@@ -237,3 +237,40 @@ def _highest_risk(risk_counts: Counter) -> str:
         if level in risk_counts:
             return level
     return "Normal"
+
+
+# ---------------------------------------------------------------------------
+# Tool 6: alert_trigger_tool
+# ---------------------------------------------------------------------------
+
+def alert_trigger_tool(
+    ctx: "AnalyticsContext",
+    risk: "RiskSummary",
+    snapshot_history: Optional[List[dict]] = None,
+) -> dict:
+    """
+    Evaluates deterministic alert thresholds and returns a structured
+    alert payload. Uses alert_rules.py — no LLM involved.
+    """
+    from alert_rules import evaluate_alerts, alert_to_dict
+
+    alert = evaluate_alerts(
+        planning_health=ctx.planning_health,
+        status="",
+        forecast_new=ctx.forecast_new,
+        forecast_old=ctx.forecast_old,
+        trend_delta=ctx.trend_delta,
+        trend_direction=ctx.trend_direction,
+        quantity_changed_count=ctx.quantity_changed_count,
+        supplier_changed_count=ctx.supplier_changed_count,
+        design_changed_count=ctx.design_changed_count,
+        roj_changed_count=ctx.roj_changed_count,
+        highest_risk_level=risk.highest_risk_level,
+        top_impacted_location=ctx.top_impacted_location,
+        top_impacted_supplier=ctx.top_impacted_supplier,
+        top_impacted_material_group=ctx.top_impacted_material_group,
+        total_records=ctx.total_records,
+        new_record_count=ctx.new_records,
+        snapshot_history=snapshot_history,
+    )
+    return alert_to_dict(alert)

@@ -302,6 +302,83 @@ def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
 # Helpers
 # ---------------------------------------------------------------------------
 
+@app.route(route="explain", methods=["POST"])
+def explain(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Focused insight endpoint for Copilot Studio or UI drill-down.
+    Accepts a question + analytics context, returns targeted explanation.
+    Supports natural language query-driven filters.
+
+    Request:
+    {
+      "question": "Why did forecast increase at LOC001?",
+      "location_id": "LOC001",
+      "material_group": "PUMP",
+      "mode": "cached"  // or "live" with current_rows/previous_rows
+    }
+    """
+    logging.info("Explain endpoint triggered.")
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body.", 400)
+
+    question: str = body.get("question", "Explain the current planning situation.")
+    mode: str = body.get("mode", "cached").lower()
+    location_id: Optional[str] = body.get("location_id")
+    material_group: Optional[str] = body.get("material_group")
+
+    # Get analytics context
+    if mode == "cached":
+        snap = load_snapshot()
+        if not snap:
+            return _error("No cached snapshot available. Run daily refresh first.", 404)
+        # Return focused insight from snapshot
+        return func.HttpResponse(
+            json.dumps({
+                "question": question,
+                "aiInsight": snap.get("aiInsight"),
+                "rootCause": snap.get("rootCause"),
+                "recommendedActions": snap.get("recommendedActions"),
+                "alerts": snap.get("alerts"),
+                "drivers": snap.get("drivers"),
+                "planningHealth": snap.get("planningHealth"),
+                "dataMode": "cached",
+                "lastRefreshedAt": snap.get("lastRefreshedAt"),
+            }, default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    # Live mode — run analytics then explain
+    current_rows: List[dict] = body.get("current_rows", [])
+    previous_rows: List[dict] = body.get("previous_rows", [])
+    if not current_rows:
+        return _error("'current_rows' required for live explain.", 400)
+
+    current_records = normalize_rows(current_rows, is_current=True)
+    previous_records = normalize_rows(previous_rows, is_current=False)
+    current_filtered = filter_records(current_records, location_id, material_group)
+    previous_filtered = filter_records(previous_records, location_id, material_group)
+    compared = compare_records(current_filtered, previous_filtered)
+    result = build_response(compared, [], location_id, material_group, data_mode="live")
+
+    return func.HttpResponse(
+        json.dumps({
+            "question": question,
+            "aiInsight": result.get("aiInsight"),
+            "rootCause": result.get("rootCause"),
+            "recommendedActions": result.get("recommendedActions"),
+            "alerts": result.get("alerts"),
+            "drivers": result.get("drivers"),
+            "planningHealth": result.get("planningHealth"),
+            "dataMode": "live",
+        }, default=str),
+        mimetype="application/json",
+        status_code=200,
+    )
+
+
 def _filter_snapshot(snap: dict, location_id: Optional[str], material_group: Optional[str]) -> dict:
     """Filter detailRecords in a cached snapshot by location/material group."""
     if not snap.get("detailRecords"):

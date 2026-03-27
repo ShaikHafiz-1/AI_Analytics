@@ -13,6 +13,7 @@ from mcp.tools import (
     risk_summary_tool,
     root_cause_driver_tool,
     recommendation_tool,
+    alert_trigger_tool,
 )
 from ai_insight_engine import generate_insights
 
@@ -44,6 +45,7 @@ def build_response(
     risk = risk_summary_tool(compared)
     root_cause = root_cause_driver_tool(compared)
     recommendations = recommendation_tool(ctx, risk, root_cause)
+    alert = alert_trigger_tool(ctx, risk)
 
     # --- AI Insight (LLM or deterministic fallback) ---
     insights = generate_insights(ctx, risk, root_cause, recommendations)
@@ -138,6 +140,9 @@ def build_response(
 
         # Detail records (slim)
         "detailRecords": [_slim_record(r) for r in changed],
+
+        # Alerts
+        "alerts": alert,
 
         # Filter context
         "filters": {
