@@ -86,6 +86,7 @@ export const DashboardPage: React.FC = () => {
             <rect x="12" y="12" width="11" height="11" fill="#ffb900"/>
           </svg>
           <div>
+            <p className="text-xs text-gray-400 font-medium tracking-wide">Microsoft</p>
             <h1 className="text-lg font-semibold">Planning Intelligence</h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {data.filters?.locationId ? `Location: ${data.filters.locationId}` : "All Locations"}
