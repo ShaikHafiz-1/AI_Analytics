@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 def run_daily_refresh(
     location_id: str = None,
     material_group: str = None,
-    source: str = "blob",
+    source: str = "blob",  # "blob" is the default — SharePoint kept for backward compat
 ) -> dict:
     """
     Full pipeline:
