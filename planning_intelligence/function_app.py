@@ -230,9 +230,20 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
         mode = "live"
 
     # ----------------------------------------------------------------
+    # BLOB MODE — load directly from Azure Blob Storage
+    # ----------------------------------------------------------------
+    if mode == "blob":
+        try:
+            from blob_loader import load_current_previous_from_blob, BlobLoaderError
+            current_rows, previous_rows = load_current_previous_from_blob()
+        except Exception as e:
+            return _error(f"Blob load failed: {str(e)}", 500)
+        snapshots_input = []
+
+    # ----------------------------------------------------------------
     # SHAREPOINT MODE — load directly from SharePoint
     # ----------------------------------------------------------------
-    if mode == "sharepoint":
+    elif mode == "sharepoint":
         try:
             from sharepoint_loader import load_current_previous_from_sharepoint, SharePointError
             current_rows, previous_rows = load_current_previous_from_sharepoint()
@@ -282,7 +293,13 @@ def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Manual daily refresh triggered.")
     try:
         from run_daily_refresh import run_daily_refresh
-        result = run_daily_refresh()
+        body = {}
+        try:
+            body = req.get_json()
+        except ValueError:
+            pass
+        source = body.get("source", "blob")  # "blob" or "sharepoint"
+        result = run_daily_refresh(source=source)
         return func.HttpResponse(
             json.dumps({
                 "status": "ok",
