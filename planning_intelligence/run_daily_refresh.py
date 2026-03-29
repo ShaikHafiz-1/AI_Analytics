@@ -1,7 +1,7 @@
 """
 Daily Refresh Job
-Reads SharePoint files, runs the full analytics pipeline,
-builds the dashboard response, and saves a snapshot.
+Reads Excel files from Azure Blob Storage (default) or SharePoint (optional legacy),
+runs the full analytics pipeline, builds the dashboard response, and saves a snapshot.
 
 Can be triggered:
   1. Manually: python run_daily_refresh.py
@@ -15,11 +15,9 @@ import sys
 # Allow running standalone
 sys.path.insert(0, os.path.dirname(__file__))
 
-from sharepoint_loader import load_current_previous_from_sharepoint, SharePointError
 from normalizer import normalize_rows
 from filters import filter_records
 from comparator import compare_records
-from trend_analyzer import analyze_trends
 from response_builder import build_response
 from snapshot_store import save_snapshot
 

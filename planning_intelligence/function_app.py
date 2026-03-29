@@ -197,7 +197,8 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     Modes:
       "cached" (default) — returns stored daily snapshot instantly
       "live"             — reads current_rows/previous_rows from request body
-      "sharepoint"       — reads directly from SharePoint (no rows needed)
+      "blob"             — reads directly from Azure Blob Storage (primary source)
+      "sharepoint"       — reads from SharePoint (optional legacy mode)
     """
     logging.info("Planning Dashboard v2 triggered.")
 
@@ -287,8 +288,9 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="daily-refresh", methods=["POST"])
 def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Manually triggers the daily SharePoint refresh and saves a snapshot.
-    Useful for testing or on-demand cache refresh.
+    Triggers the daily Blob Storage refresh and saves a snapshot.
+    Optionally accepts {"source": "sharepoint"} for legacy SharePoint mode.
+    Default source is "blob".
     """
     logging.info("Manual daily refresh triggered.")
     try:
