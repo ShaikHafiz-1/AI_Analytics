@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { DashboardResponse, DataMode } from "../types/dashboard";
 import { fetchDashboard } from "../services/api";
-
 import { AlertBanner } from "../components/AlertBanner";
 import { PlanningHealthCard } from "../components/PlanningHealthCard";
 import { ForecastCard } from "../components/ForecastCard";
@@ -34,7 +33,8 @@ export const DashboardPage: React.FC = () => {
     }
     fetchDashboard({ mode: "cached" })
       .then(d => { setData(d); setLoading(false); })
-      .catch(() => {
+      .catch((err) => {
+        setError(`API unavailable: ${err.message}. Showing cached demo data.`);
         import("../mock/sample_payload.json").then(m => {
           setData(m.default as DashboardResponse);
           setLoading(false);

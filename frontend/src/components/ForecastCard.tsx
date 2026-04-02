@@ -34,3 +34,8 @@ export const ForecastCard: React.FC<Props> = ({ forecastNew, forecastOld, trendD
     </div>
   );
 };
+
+
+
+
+

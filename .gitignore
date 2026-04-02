@@ -6,7 +6,7 @@ __pycache__/
 venv/
 local.settings.json
 *.zip
-.vscode/
+
 node_modules/
 dashboard_ui/node_modules/
 dashboard_ui/.env

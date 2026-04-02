@@ -32,3 +32,8 @@ export const PlanningHealthCard: React.FC<Props> = ({ score, status }) => {
     </div>
   );
 };
+
+
+
+
+

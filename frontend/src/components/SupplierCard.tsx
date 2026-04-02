@@ -24,3 +24,8 @@ export const SupplierCard: React.FC<Props> = ({ supplierSummary }) => (
     }
   </div>
 );
+
+
+
+
+

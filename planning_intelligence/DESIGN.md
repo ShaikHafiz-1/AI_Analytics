@@ -1,465 +1,354 @@
-# Planning Intelligence — System Design
+# Planning Intelligence POC — Design Document
 
-**Version:** 2.0  
-**Date:** March 2026  
-**Status:** Production
+## 1. Overview
 
----
-
-## 1. Introduction
-
-### Business Problem
-
-Enterprise demand planning teams face three core challenges:
-
-- **Visibility** — No real-time view of what changed between planning cycles
-- **Change Tracking** — Manual effort to identify quantity, supplier, design, and schedule changes
-- **Risk Detection** — No automated mechanism to flag high-risk records before they impact supply
-
-### Goal
-
-Transform static Excel-based planning reports into an AI-driven intelligence platform that:
-
-- Automatically detects and classifies changes between planning versions
-- Generates business-readable insights using GenAI
-- Surfaces risk, root cause, and recommended actions without manual analysis
-- Evolves toward auto-triggered proactive intelligence
+A Python Azure Function backend that receives planning data from Power Automate (Excel sheets),
+performs normalization, comparison, analytics, and trend analysis, and returns structured JSON
+responses to Copilot Studio or Power Automate flows.
 
 ---
 
-## 2. System Architecture
-
-### Layered Architecture
+## 2. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     UI LAYER                            │
-│         React Dashboard  /  Copilot Studio              │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTP POST
-┌────────────────────────▼────────────────────────────────┐
-│                    API LAYER                            │
-│         Azure Function App (pi-planning-intelligence)   │
-│  /planning-dashboard-v2  /daily-refresh  /explain       │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                   DATA LAYER                            │
-│         Azure Blob Storage                              │
-│         current.xlsx  |  previous.xlsx                  │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                ANALYTICS LAYER                          │
-│  Normalize → Filter → Compare → Classify → Aggregate   │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│                    AI LAYER                             │
-│         LLM Insight Engine (Azure OpenAI)               │
-│         MCP — Model Context Protocol                    │
-└────────────────────────┬────────────────────────────────┘
-                         │
-┌────────────────────────▼────────────────────────────────┐
-│               RESPONSE BUILDER                          │
-│         Dashboard JSON  |  Insights  |  Alerts          │
-└─────────────────────────────────────────────────────────┘
-```
-
-### End-to-End Data Flow
-
-1. Daily refresh loads `current.xlsx` and `previous.xlsx` from Azure Blob Storage
-2. Analytics pipeline normalizes, filters, compares, and classifies records
-3. LLM Insight Engine converts structured analytics into business narrative
-4. Response Builder assembles the full dashboard payload
-5. Snapshot saved to persistent storage for fast UI load
-6. React UI fetches cached snapshot and renders cards, charts, and insights
-
----
-
-## 3. Data Ingestion Layer
-
-### Primary Source — Azure Blob Storage
-
-Blob Storage is the default and primary data source. Two Excel files are expected per planning cycle:
-
-| File | Purpose |
-|------|---------|
-| `current.xlsx` | Current planning version |
-| `previous.xlsx` | Previous planning version for comparison |
-
-### Required Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `BLOB_CONNECTION_STRING` | Azure Storage connection string |
-| `BLOB_CONTAINER_NAME` | Container name (default: `planning-data`) |
-| `BLOB_CURRENT_FILE` | Blob name for current file (default: `current.xlsx`) |
-| `BLOB_PREVIOUS_FILE` | Blob name for previous file (default: `previous.xlsx`) |
-
-### Column Requirements
-
-Files must contain these columns (aliases supported):
-
-| Canonical Name | Accepted Aliases |
-|---------------|-----------------|
-| `LOCID` | `LOC ID` |
-| `PRDID` | `PRD ID`, `MATERIAL ID` |
-| `GSCEQUIPCAT` | `EQUIPMENT CATEGORY` |
-
-### Legacy Source — SharePoint (Optional)
-
-SharePoint remains supported as a fallback via `mode=sharepoint`. It is no longer the default. Configure via `SHAREPOINT_*` environment variables if needed.
-
----
-
-## 4. Analytics Engine
-
-### Pipeline
-
-```
-Raw Excel Rows
-     │
-     ▼
-normalize_rows()        — standardize fields, types, casing
-     │
-     ▼
-filter_records()        — optional location_id / material_group filter
-     │
-     ▼
-compare_records()       — match current vs previous by LOCID + PRDID
-     │
-     ▼
-Change Detection:
-  - Quantity changed     (FCSTQTY delta)
-  - Supplier changed     (SUPPLIER field)
-  - Design changed       (BOD / FF fields)
-  - ROJ changed          (need-by date shift)
-     │
-     ▼
-Classification:
-  - Change type label    (quantity-driven, supplier-driven, etc.)
-  - Risk level           (Normal / Medium / High / Critical)
-     │
-     ▼
-Aggregation:
-  - changes_by_location()
-  - changes_by_material_group()
-  - change_driver_analysis()
-  - high_risk_records()
+Excel Sheets (SharePoint)
+        |
+        v
+Power Automate Flow
+  - Reads current sheet rows
+  - Reads previous sheet rows (or multiple snapshots for trend)
+  - Sends JSON POST to Azure Function
+        |
+        v
+Azure Function (HTTP Trigger)
+  planning-intelligence-fn
+  Python 3.13 | Linux | Premium Plan
+        |
+        ├── normalizer.py      - Maps SAP columns to clean fields
+        ├── filters.py         - Filters by location / material group
+        ├── comparator.py      - Compares current vs previous records
+        ├── analytics.py       - Builds summary and analytical outputs
+        └── trend_analyzer.py  - Multi-snapshot trend detection
+        |
+        v
+JSON Response
+        |
+        v
+Copilot Studio / Power Automate / Teams
 ```
 
 ---
 
-## 5. Trend Engine
+## 3. Data Source — Excel Column Mapping
 
-Multi-snapshot analysis across historical planning cycles.
-
-### Input
-
-Array of snapshots, each representing one planning cycle.
-
-### Features
-
-| Feature | Description |
-|---------|-------------|
-| Consistently Increasing | Records with demand growing across all snapshots |
-| Recurring Changes | Records that change repeatedly (configurable threshold) |
-| One-Off Spikes | Isolated large changes not seen in other cycles |
-| Change Streaks | Records with N consecutive cycles of change |
-
-### Key Functions
-
-- `analyze_trends()` — full multi-snapshot analysis
-- `get_consistently_increasing()` — upward trend detection
-- `get_recurring_changes()` — repeat change detection
-- `get_one_off_spikes()` — anomaly detection
-- `get_change_streaks()` — streak analysis
+| SAP Column Code        | Business Description          | Internal Field         |
+|------------------------|-------------------------------|------------------------|
+| LOCID                  | Location ID                   | location_id            |
+| PRDID                  | Material ID                   | material_id            |
+| GSCEQUIPCAT            | Equipment Category            | material_group         |
+| LOCFR                  | Supplier From                 | supplier               |
+| LOCFRDESCR             | Supplier Description (fallback)| supplier              |
+| GSCFSCTQTY             | Forecast Quantity (current)   | forecast_qty           |
+| GSCPREVFCSTQTY         | Previous Forecast Quantity    | forecast_qty (prev)    |
+| GSCCONROJDATE          | ROJ Need by Date (current)    | roj                    |
+| GSCPREVROJNBD          | Previous ROJ Need By Date     | roj (prev)             |
+| ZCOIBODVER             | BOD Version                   | bod                    |
+| ZCOIFORMFACT           | Form Factor                   | ff                     |
+| ROC                    | ROC Region                    | roc_region             |
+| ZCOIDCID               | Facility / DC / Site Name     | dc_site                |
+| ZCOIMETROID            | Planning Metro                | metro                  |
+| ZCOICOUNTRY            | Country                       | country                |
+| GSCSUPLDATE            | Supplier Date                 | supplier_date          |
+| GSCPREVSUPLDATE        | Previous Supplier Date        | prev_supplier_date     |
+| ZGSCPLANNINGEXCEPTION  | Planning Exception            | planning_exception     |
+| ZGSCROJDATEREASONCODE  | ROJ Date Reason Code          | roj_reason_code        |
+| ZGSCAUTOMATIONREASON   | Automation Reason             | automation_reason      |
+| LASTMODIFIEDBY         | User who last modified        | last_modified_by       |
+| LASTMODIFIEDDATE       | Last modified date            | last_modified_date     |
+| CREATEDBY              | Created by user               | created_by             |
+| CREATEDDATE            | Created date                  | created_date           |
 
 ---
 
-## 6. Dashboard Model
+## 4. Matching Key
 
-The response builder assembles a structured JSON payload consumed by the UI.
+Records are matched across current and previous sheets using a composite key:
 
-### Output Structure
-
-```json
-{
-  "planningHealth": 82,
-  "status": "At Risk",
-  "forecastNew": 142500,
-  "forecastOld": 138000,
-  "trendDelta": 4500,
-  "trendDirection": "increasing",
-  "totalRecords": 320,
-  "changedRecordCount": 47,
-  "datacenterSummary": [...],
-  "materialGroupSummary": [...],
-  "supplierSummary": [...],
-  "designSummary": [...],
-  "rojSummary": [...],
-  "riskSummary": { "highRiskCount": 12, "riskBreakdown": {...} },
-  "rootCause": { "primaryDriver": "quantity", ... },
-  "aiInsight": "...",
-  "recommendedActions": ["...", "..."],
-  "alerts": { "shouldTrigger": true, "message": "..." },
-  "drivers": {...},
-  "dataMode": "cached",
-  "lastRefreshedAt": "2026-03-29T12:00:00Z"
-}
+```
+location_id + material_group + material_id
+(LOCID)       (GSCEQUIPCAT)    (PRDID)
 ```
 
 ---
 
-## 7. LLM Insight Engine
+## 5. Business Rules
 
-### Purpose
+### 5.1 Change Detection
+A record is considered changed if any of these fields differ between current and previous:
 
-Converts structured analytics context into executive-ready business narrative using Azure OpenAI.
+| Field          | Change Flag        |
+|----------------|--------------------|
+| forecast_qty   | qty_changed        |
+| roj            | roj_changed        |
+| supplier       | supplier_changed   |
+| bod or ff      | design_changed     |
 
-### Outputs
+### 5.2 Derived Fields
 
-| Field | Description |
-|-------|-------------|
-| `aiInsight` | Plain-language summary of the planning situation |
-| `rootCause` | Primary driver of change with supporting evidence |
-| `recommendedActions` | Actionable steps for planners |
-| `alerts` | Triggered when risk or change thresholds are exceeded |
+| Field        | Description                                      |
+|--------------|--------------------------------------------------|
+| qty_delta    | forecast_qty_current - forecast_qty_previous     |
+| change_type  | Combination of changed flags e.g. "Qty + Design" |
+| risk_level   | Derived from change flags (see below)            |
 
-### Guardrail System
+### 5.3 Risk Classification (priority order)
 
-Before calling the LLM, the engine applies deterministic guardrails:
+| Condition                                          | Risk Level                        |
+|----------------------------------------------------|-----------------------------------|
+| design_changed AND supplier_changed                | Design + Supplier Change Risk     |
+| design_changed only                                | Design Change Risk                |
+| supplier_changed only                              | Supplier Change Risk              |
+| forecast_qty_current > 2 × forecast_qty_previous  | High Demand Spike                 |
+| Any other change                                   | Normal                            |
 
-- Fully stable → skip LLM, return static message
-- Only quantity changed → return quantity-specific narrative
-- Only supplier changed → return supplier-specific narrative
-- Only schedule changed → return ROJ-specific narrative
-- Mixed changes → call LLM for nuanced reasoning
+---
 
-### Fallback
+## 6. API Design
 
-If LLM is unavailable or not configured, a deterministic fallback generates structured insights from analytics data without any AI call.
-
-### Explainability Endpoint
-
-`POST /explain` accepts a natural language question and returns focused insight from the cached snapshot or live analytics:
-
-```json
-{
-  "question": "Why did forecast increase at LOC001?",
-  "mode": "cached",
-  "location_id": "LOC001"
-}
+### Endpoint
 ```
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
-| `AZURE_OPENAI_KEY` | API key |
-| `AZURE_OPENAI_DEPLOYMENT` | Model deployment name (e.g. `gpt-4o`) |
-| `AZURE_OPENAI_API_VERSION` | API version (default: `2024-02-01`) |
-| `LLM_TIMEOUT_SECONDS` | Request timeout (default: `10`) |
-
----
-
-## 8. MCP Architecture
-
-### Model Context Protocol
-
-MCP provides a standardized interface layer between the analytics engine, LLM, and UI consumers (including Copilot Studio).
-
-### Purpose
-
-- Structures analytics context into typed schemas before LLM consumption
-- Enables reusable, testable prompt construction
-- Decouples analytics logic from LLM implementation
-- Supports enterprise scalability and auditability
-
-### Key Schemas
-
-| Schema | Description |
-|--------|-------------|
-| `AnalyticsContext` | Full analytics summary passed to LLM |
-| `RiskSummary` | Risk level breakdown |
-| `RootCauseContext` | Primary driver and change type |
-| `RecommendationContext` | Deterministic action list |
-
-### MCP Tools
-
-Defined in `mcp/tools.py` — expose analytics capabilities as callable tools for Copilot Studio or agent frameworks.
-
----
-
-## 9. API Layer — Azure Functions
-
-### Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/planning-intelligence` | POST | Raw analytics queries (summary, trends, risk) |
-| `/planning-dashboard` | POST | Full dashboard payload (v1) |
-| `/planning-dashboard-v2` | POST | Hybrid AI dashboard with mode switching |
-| `/daily-refresh` | POST | Triggers blob load, analytics, snapshot save |
-| `/explain` | POST | Focused insight for a specific question |
-
-### Modes (`/planning-dashboard-v2`)
-
-| Mode | Description |
-|------|-------------|
-| `cached` (default) | Returns stored daily snapshot instantly |
-| `live` | Processes `current_rows` / `previous_rows` from request body |
-| `blob` | Reads directly from Azure Blob Storage |
-| `sharepoint` | Reads from SharePoint (legacy fallback) |
+POST /api/planning-intelligence
+```
 
 ### Authentication
+Azure Function key (`?code=<key>` in URL or `x-functions-key` header)
 
-All endpoints use Azure Function key authentication (`?code=<key>`).
-
----
-
-## 10. Snapshot & Auto-Trigger System
-
-### Daily Refresh Job
-
-`run_daily_refresh.py` orchestrates the full pipeline:
-
-1. Load `current.xlsx` + `previous.xlsx` from Blob Storage
-2. Run normalize → filter → compare → analytics
-3. Call LLM Insight Engine
-4. Build full dashboard response
-5. Save snapshot to `snapshot.json`
-
-Triggered via `POST /daily-refresh` — can be scheduled using Azure Logic Apps or a Timer Trigger.
-
-### Snapshot Storage
-
-- Default path: `/tmp/planning_snapshot.json`
-- Production: mount Azure Files share, set `SNAPSHOT_FILE_PATH`
-- In-memory fallback if file system is unavailable
-
-### Benefits
-
-- Sub-100ms UI load (no live computation on page load)
-- Historical comparison across refresh cycles
-- Foundation for auto-triggered alerts
-
----
-
-## 11. UI Layer
-
-### React Dashboard
-
-Built with React (TypeScript), Tailwind CSS, hosted on Azure Blob static website.
-
-### Cards
-
-| Card | Data Source |
-|------|------------|
-| Planning Health | `planningHealth` score (0–100) |
-| Forecast | `forecastNew`, `forecastOld`, `trendDelta` |
-| Trend | `trendDirection`, `changedRecordCount` |
-| Summary Tiles | KPI counts |
-| AI Insight | `aiInsight` (LLM-generated) |
-| Root Cause | `rootCause` |
-| Risk | `riskSummary` |
-| Datacenter | `datacenterSummary` |
-| Material Group | `materialGroupSummary` |
-| Supplier | `supplierSummary` |
-| Design | `designSummary` |
-| ROJ | `rojSummary` |
-| Actions Panel | `recommendedActions` |
-
-### Configuration
-
-| Variable | Description |
-|----------|-------------|
-| `REACT_APP_USE_MOCK` | Set to `false` for live data |
-| `REACT_APP_API_URL` | Azure Function App base URL |
-| `REACT_APP_API_KEY` | Function host key |
-
----
-
-## 12. Auto-Triggered Insights
-
-### Vision
-
-Move from query-driven to proactive intelligence — the system detects anomalies and triggers alerts without user action.
-
-### Capabilities (Current)
-
-- Alert rules evaluate risk thresholds on every refresh
-- `alerts.shouldTrigger` flag drives UI banner display
-- `/explain` endpoint supports Copilot Studio integration for conversational drill-down
-
-### Roadmap
-
-- Timer-triggered daily refresh with alert dispatch
-- Email / Teams notification on threshold breach
-- Anomaly scoring per record
-- Predictive demand shift detection
-
----
-
-## 13. Deployment Architecture
-
-```
-GitHub (main branch)
-     │
-     ├── push to planning_intelligence/**
-     │        └── deploy.yml → Azure Functions (pi-planning-intelligence)
-     │
-     └── push to frontend/**
-              └── deploy-frontend.yml → Azure Blob ($web container)
-                                         planningdatapi.z30.web.core.windows.net
+### Request — Two-Snapshot Mode
+```json
+{
+  "query_type": "summary",
+  "location_id": "LOC001",
+  "material_group": "PUMP",
+  "current_rows": [ ...Excel rows as JSON... ],
+  "previous_rows": [ ...Excel rows as JSON... ]
+}
 ```
 
-### Components
-
-| Component | Azure Service |
-|-----------|--------------|
-| Backend API | Azure Function App (Python 3.13, Consumption plan) |
-| Data Files | Azure Blob Storage (`planning-data` container) |
-| Snapshot | Azure Files (mounted) or `/tmp` fallback |
-| Frontend UI | Azure Blob Static Website |
-| CI/CD | GitHub Actions |
-
----
-
-## 14. Security & Access
-
-- All API endpoints protected by Azure Function key (`AuthLevel.FUNCTION`)
-- Blob Storage accessed via connection string (stored in Function App settings)
-- Azure OpenAI key stored as environment variable, never in code
-- Frontend `.env` excluded from git via `.gitignore`
-- GitHub Secrets used for all CI/CD credentials
-- CORS configured on Function App to allow only the static website origin
+### Request — Trend Mode (multi-snapshot)
+```json
+{
+  "query_type": "trend_analysis",
+  "location_id": "LOC001",
+  "material_group": "PUMP",
+  "recurring_threshold": 3,
+  "min_streak": 2,
+  "snapshots": [
+    { "snapshot_date": "2026-03-01", "rows": [ ...rows... ] },
+    { "snapshot_date": "2026-03-08", "rows": [ ...rows... ] },
+    { "snapshot_date": "2026-03-15", "rows": [ ...rows... ] }
+  ]
+}
+```
 
 ---
 
-## 15. Known Issues & Limitations
+## 7. Supported Query Types
 
-| Issue | Impact | Mitigation |
-|-------|--------|-----------|
-| CORS must be configured manually | Browser blocks API calls | Add static website URL to Function App CORS settings |
-| Snapshot stored in `/tmp` | Lost on Function App restart | Mount Azure Files share, set `SNAPSHOT_FILE_PATH` |
-| UI falls back to mock data if API fails | Shows stale data silently | Add visible error state in UI |
-| `react-scripts` incompatible with Node 24 | Build fails | Use Node 18 LTS via nvm |
-| Python version mismatch (local 3.11 vs Azure 3.13) | Potential module errors | Align local and Azure Python versions |
+### Two-Snapshot Queries
+
+| query_type                | Question Answered                                  |
+|---------------------------|----------------------------------------------------|
+| summary (default)         | All six analytical questions in one response       |
+| changed_count             | How many records changed?                          |
+| changed_material_ids      | Which material IDs changed?                        |
+| changed_records           | Show me the changed records                        |
+| changes_by_location       | Which locations have the most changes?             |
+| changes_by_material_group | Which equipment categories changed?                |
+| change_driver_analysis    | Is it qty-, supplier-, or design-driven?           |
+| high_risk_records         | Which records are high risk?                       |
+| supplier_design_changes   | Supplier + design changed together                 |
+| list_locations_and_groups | What locations and material groups are available?  |
+
+### Trend Queries (multi-snapshot)
+
+| query_type              | Question Answered                                        |
+|-------------------------|----------------------------------------------------------|
+| trend_analysis          | Full trend summary across all materials                  |
+| consistently_increasing | Materials where qty went up every single snapshot        |
+| recurring_changes       | Materials that changed in N+ snapshots (configurable)    |
+| one_off_spikes          | Spiked once and recovered — not a pattern                |
+| change_streaks          | Materials changed in N consecutive snapshots             |
 
 ---
 
-## 16. Future Enhancements
+## 8. Module Breakdown
 
-| Enhancement | Description |
-|-------------|-------------|
-| Real-time streaming | WebSocket or SSE for live planning updates |
-| Agent-based decisioning | Autonomous planning recommendations via AI agents |
-| Predictive forecasting | ML models for demand shift prediction |
-| ERP integration | Direct SAP / D365 data ingestion |
-| Multi-tenant support | Isolated analytics per business unit |
-| Audit trail | Change history log per planning record |
-| Teams integration | Proactive alerts via Microsoft Teams adaptive cards |
-| Power BI connector | Expose analytics as Power BI dataset |
+### models.py
+Typed dataclasses for all data structures:
+- `PlanningRecord` — normalized single row from Excel
+- `ComparedRecord` — result of comparing current vs previous record
+- `SnapshotPoint` — one record at a specific point in time (for trend)
+- `TrendRecord` — full trend analysis for a single material key
+
+### normalizer.py
+- Maps raw SAP column codes to clean field names
+- Handles nulls, empty strings, type coercion
+- Supports both current (`GSCFSCTQTY`) and previous (`GSCPREVFCSTQTY`) column variants
+
+### filters.py
+- Filters records by `location_id` and/or `material_group`
+- Case-insensitive matching
+- Returns available locations and material groups
+
+### comparator.py
+- Matches records by composite key
+- Detects changes in qty, roj, supplier, bod, ff
+- Derives `change_type` and `risk_level`
+- New records (no previous match) are included with all change flags set
+
+### analytics.py
+- `build_summary` — full six-question analytical response
+- `changes_by_location` — ranked location change counts
+- `changes_by_material_group` — ranked material group change counts
+- `change_driver_analysis` — qty / supplier / design / roj driver breakdown
+- `high_risk_records` — filtered high risk records with risk level summary
+- `filter_by_supplier_design_change` — records with both supplier and design changes
+
+### trend_analyzer.py
+- Accepts multiple dated snapshots
+- Sorts snapshots chronologically
+- Builds per-material timelines
+- Detects: consistently increasing, consistently decreasing, volatile, stable
+- Detects one-off spikes (spiked once, recovered)
+- Counts change streaks (consecutive changed snapshots)
+- Flags recurring changes (changed in N+ snapshots)
+
+### function_app.py
+- HTTP trigger entry point
+- Routes `query_type` to the correct analytics function
+- Handles both two-snapshot and multi-snapshot paths
+- Returns JSON responses with proper status codes
+
+---
+
+## 9. Trend Detection Logic
+
+### Qty Trend Classification
+```
+All diffs > 0  → "increasing"
+All diffs < 0  → "decreasing"
+All diffs = 0  → "stable"
+Mixed          → "volatile"
+```
+
+### One-Off Spike Detection
+```
+1. Find snapshots where qty > 2x previous qty
+2. If exactly one such snapshot exists
+3. AND the value drops back down in the next snapshot
+→ is_one_off_spike = True
+```
+
+### Change Streak
+```
+Count consecutive changed snapshots from the most recent end backwards
+Resets to 0 when an unchanged snapshot is encountered
+```
+
+### Recurring Change
+```
+changed_snapshot_count >= recurring_threshold (default: 3)
+```
+
+---
+
+## 10. Project Structure
+
+```
+planning_intelligence/
+├── function_app.py          # HTTP trigger entry point
+├── models.py                # Typed dataclasses
+├── normalizer.py            # SAP column mapping + normalization
+├── comparator.py            # Record comparison + risk derivation
+├── filters.py               # Location / material group filtering
+├── analytics.py             # Summary and analytical query builders
+├── trend_analyzer.py        # Multi-snapshot trend detection
+├── host.json                # Azure Functions runtime config
+├── requirements.txt         # azure-functions>=1.18.0
+├── local.settings.json      # Local dev config (not committed)
+├── .funcignore              # Files excluded from deployment
+├── samples/
+│   ├── request.json         # Sample two-snapshot request
+│   ├── response.json        # Sample two-snapshot response
+│   └── trend_request.json   # Sample trend request
+└── tests/
+    ├── test_normalizer.py
+    ├── test_comparator.py
+    ├── test_filters.py
+    ├── test_analytics.py
+    └── test_trend_analyzer.py
+```
+
+---
+
+## 11. Test Coverage
+
+39 unit tests across 5 test files covering:
+- Column normalization and null handling
+- Supplier fallback (LOCFR → LOCFRDESCR)
+- Change detection for all tracked fields
+- Risk level derivation including combined Design + Supplier
+- Case-insensitive filtering
+- All six analytical query outputs
+- Trend detection: increasing, volatile, recurring, one-off spike, streak
+- Snapshot ordering regardless of input order
+- Location filtering in trend mode
+
+---
+
+## 12. Deployment
+
+- Platform: Azure Functions, Python 3.13, Linux
+- Plan: Premium (EP1)
+- Region: South India
+- CI/CD: GitHub Actions (`.github/workflows/deploy.yml`)
+- Repository: https://github.com/ShaikHafiz-1/AI_Analytics
+
+---
+
+## 13. Power Automate Integration
+
+### Flow Structure (Two-Snapshot)
+```
+Trigger (scheduled or manual)
+  → Excel: List rows from Current sheet
+  → Excel: List rows from Previous sheet
+  → HTTP POST to Azure Function
+      Body: { query_type, location_id, material_group,
+              current_rows, previous_rows }
+  → Parse JSON response
+  → Send to Copilot Studio / Teams / Email
+```
+
+### Flow Structure (Trend)
+```
+Trigger
+  → For each Excel sheet in SharePoint folder:
+      Append { snapshot_date, rows } to snapshots array
+  → HTTP POST to Azure Function
+      Body: { query_type: "trend_analysis", snapshots, ... }
+  → Parse JSON response
+  → Send to Copilot Studio
+```
+
+### Copilot Studio Query Mapping
+
+| User says                              | query_type to send        |
+|----------------------------------------|---------------------------|
+| How many records changed?              | changed_count             |
+| Show me what changed                   | changed_records           |
+| Which locations changed most?          | changes_by_location       |
+| Is this a spike or a pattern?          | trend_analysis            |
+| Which materials keep changing?         | recurring_changes         |
+| What's high risk?                      | high_risk_records         |
+| Is demand consistently increasing?     | consistently_increasing   |

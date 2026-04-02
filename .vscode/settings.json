@@ -1,5 +1,4 @@
 {
-    "kiroAgent.configureMCP": "Disabled",
     "azureFunctions.deploySubpath": "planning_intelligence",
     "azureFunctions.scmDoBuildDuringDeployment": true,
     "azureFunctions.pythonVenv": ".venv",

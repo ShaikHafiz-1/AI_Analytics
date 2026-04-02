@@ -45,3 +45,8 @@ export const TrendCard: React.FC<Props> = ({ trendDirection, riskSummary, totalR
     </div>
   );
 };
+
+
+
+
+
