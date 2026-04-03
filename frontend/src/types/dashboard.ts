@@ -141,3 +141,89 @@ export interface DashboardResponse {
     materialGroup: string | null;
   };
 }
+
+export interface DashboardContext {
+  planningHealth: number;
+  status: HealthStatus;
+  forecastNew: number;
+  forecastOld: number;
+  trendDelta: number;
+  trendDirection: TrendDirection;
+  changedRecordCount: number;
+  totalRecords: number;
+  riskSummary: {
+    level: RiskLevel;
+    highestRiskLevel: string;
+    highRiskCount: number;
+    riskBreakdown: Record<string, number>;
+    quantityChangedCount: number;
+    supplierChangedCount: number;
+    designChangedCount: number;
+    rojChangedCount: number;
+  };
+  aiInsight: string;
+  rootCause: string;
+  recommendedActions: string[];
+  alerts: AlertPayload;
+  drivers: {
+    location: string | null;
+    supplier: string | null;
+    material: string | null;
+    materialGroup: string | null;
+    changeType: string;
+  };
+  filters: {
+    locationId: string | null;
+    materialGroup: string | null;
+  };
+  dataMode: DataMode;
+  lastRefreshedAt: string;
+}
+
+export interface ExplainRequest {
+  question: string;
+  mode?: "live" | "cached";
+  location_id?: string;
+  material_group?: string;
+  context?: Partial<DashboardContext>;
+}
+
+export interface ExplainResponse {
+  question: string;
+  answer: string;
+  aiInsight: string;
+  rootCause: string;
+  recommendedActions: string[];
+  planningHealth: number;
+  dataMode: DataMode;
+  lastRefreshedAt: string;
+  supportingMetrics: {
+    changedRecordCount: number;
+    totalRecords: number;
+    trendDelta: number;
+    planningHealth: number;
+  };
+  contextUsed: string[];
+}
+
+export interface DebugSnapshotResponse {
+  normalizedCount: number;
+  filteredCount: number;
+  comparedCount: number;
+  changedCount: number;
+  healthScoreInputs: {
+    total: number;
+    changed: number;
+    riskCounts: Record<string, number>;
+    designCount: number;
+    supplierCount: number;
+    highestRisk: string;
+    deductions: {
+      changeRatio: number;
+      riskLevel: number;
+      designPenalty: number;
+      supplierPenalty: number;
+    };
+  };
+  dashboardResponse: DashboardResponse;
+}

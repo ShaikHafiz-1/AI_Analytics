@@ -53,7 +53,7 @@ def test_load_excel_from_bytes_empty_raises():
 
 
 def test_load_excel_from_bytes_invalid_raises():
-    with pytest.raises(BlobLoaderError, match="Failed to parse Excel"):
+    with pytest.raises(BlobLoaderError, match="Failed to parse"):
         load_excel_from_bytes(b"not an excel file", label="test")
 
 

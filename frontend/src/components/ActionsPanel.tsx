@@ -5,10 +5,11 @@ interface Props {
   onAskCopilot?: () => void;
   onNotifyPlanner?: () => void;
   onViewDetails?: () => void;
+  copilotActive?: boolean;
 }
 
 export const ActionsPanel: React.FC<Props> = ({
-  recommendedActions, onAskCopilot, onNotifyPlanner, onViewDetails,
+  recommendedActions, onAskCopilot, onNotifyPlanner, onViewDetails, copilotActive,
 }) => (
   <div className="bg-card border border-border rounded-2xl p-6">
     <p className="text-xs uppercase tracking-widest text-gray-400 mb-4">Recommended Actions</p>
@@ -22,15 +23,15 @@ export const ActionsPanel: React.FC<Props> = ({
     </ul>
     <div className="flex flex-wrap gap-3">
       <button onClick={onAskCopilot}
-        className="px-4 py-2 rounded-lg bg-blue-900/20 border border-blue-500/30 text-blue-400 text-sm font-medium hover:bg-blue-900/40 transition">
+        className={`px-4 py-2 rounded-lg border text-sm font-medium transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 ${copilotActive ? "bg-blue-900/40 border-blue-400 text-blue-300" : "bg-blue-900/20 border-blue-500/30 text-blue-400 hover:bg-blue-900/40"}`}>
         ✦ Ask Copilot
       </button>
       <button onClick={onNotifyPlanner}
-        className="px-4 py-2 rounded-lg bg-yellow-900/20 border border-yellow-500/30 text-yellow-400 text-sm font-medium hover:bg-yellow-900/40 transition">
+        className="px-4 py-2 rounded-lg bg-yellow-900/20 border border-yellow-500/30 text-yellow-400 text-sm font-medium hover:bg-yellow-900/40 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-400">
         ⚑ Notify Planner
       </button>
       <button onClick={onViewDetails}
-        className="px-4 py-2 rounded-lg bg-border border border-border text-gray-300 text-sm font-medium hover:bg-gray-700 transition">
+        className="px-4 py-2 rounded-lg bg-border border border-border text-gray-300 text-sm font-medium hover:bg-gray-700 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-400">
         ☰ View Details
       </button>
     </div>
