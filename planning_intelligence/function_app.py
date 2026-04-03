@@ -348,9 +348,9 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
 
 
 def _generate_answer_from_context(question: str, ctx: dict) -> str:
-    """Generate a grounded plain-language answer from available context."""
+    """Generate a grounded plain-language answer from available context, using detailRecords when available."""
     q = question.lower()
-    health = ctx.get("planningHealth") or ctx.get("planningHealth")
+    health = ctx.get("planningHealth")
     status = ctx.get("status", "")
     changed = ctx.get("changedRecordCount", 0)
     total = ctx.get("totalRecords", 0)
@@ -359,27 +359,40 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
     root_cause = ctx.get("rootCause", "")
     actions = ctx.get("recommendedActions", [])
     drivers = ctx.get("drivers") or {}
-    risk = (ctx.get("riskSummary") or {}).get("highestRiskLevel", "Normal")
+    risk_summary = ctx.get("riskSummary") or {}
+    risk = risk_summary.get("highestRiskLevel", "Normal")
     trend = ctx.get("trendDirection", "")
     trend_delta = ctx.get("trendDelta", 0)
+    contrib = ctx.get("contributionBreakdown") or {}
+    kpis = ctx.get("kpis") or {}
+    details = ctx.get("detailRecords") or []
+    dc_summary = ctx.get("datacenterSummary") or []
+    mg_summary = ctx.get("materialGroupSummary") or []
 
     if any(w in q for w in ["health", "critical", "score", "low"]):
+        contrib_text = ""
+        if contrib:
+            contrib_text = f" Breakdown: Qty {contrib.get('quantity', 0)}%, Supplier {contrib.get('supplier', 0)}%, Design {contrib.get('design', 0)}%, Schedule {contrib.get('schedule', 0)}%."
         return (
             f"Planning health is {health}/100 ({status}). "
             f"{pct}% of records changed ({changed}/{total}). "
-            f"Risk level: {risk}. {ai_insight}"
+            f"Risk level: {risk}.{contrib_text} {ai_insight}"
         )
     if any(w in q for w in ["changed", "change", "most", "what changed"]):
         loc = drivers.get("location", "N/A")
         change_type = drivers.get("changeType", "N/A")
+        contrib_text = ""
+        if contrib:
+            contrib_text = f" Contribution: Qty {contrib.get('quantityCount', 0)}, Supplier {contrib.get('supplierCount', 0)}, Design {contrib.get('designCount', 0)}, Schedule {contrib.get('scheduleCount', 0)}."
         return (
             f"{changed} records changed ({pct}% of total). "
-            f"Primary driver: {change_type}. Top location: {loc}. "
+            f"Primary driver: {change_type}. Top location: {loc}.{contrib_text} "
             f"{root_cause}"
         )
     if any(w in q for w in ["forecast", "demand", "increase", "decrease", "trend"]):
         return (
             f"Forecast trend is {trend} with a delta of {trend_delta:+,.0f} units. "
+            f"Demand volatility: {kpis.get('demandVolatility', 'N/A')}%. "
             f"{ai_insight}"
         )
     if any(w in q for w in ["action", "planner", "do next", "recommend"]):
@@ -388,10 +401,38 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
         return "No specific actions recommended at this time."
     if any(w in q for w in ["location", "site", "datacenter"]):
         loc = drivers.get("location", "N/A")
-        return f"Top impacted location: {loc}. {root_cause}"
+        top_locs = ", ".join(f"{d.get('locationId', '?')}: {d.get('changed', 0)} changed" for d in dc_summary[:3]) if dc_summary else "N/A"
+        return f"Top impacted location: {loc}. Top locations: {top_locs}. {root_cause}"
+    if any(w in q for w in ["material", "group", "category", "equipment"]):
+        top_mgs = ", ".join(f"{g.get('materialGroup', '?')}: {g.get('changed', 0)} changed" for g in mg_summary[:3]) if mg_summary else "N/A"
+        return f"Top material groups: {top_mgs}. {root_cause}"
     if any(w in q for w in ["supplier"]):
         sup = drivers.get("supplier", "N/A")
-        return f"Top impacted supplier: {sup}. {root_cause}"
+        reliability = kpis.get("supplierReliability", "N/A")
+        return f"Top impacted supplier: {sup}. Supplier reliability: {reliability}%. {root_cause}"
+    if any(w in q for w in ["risk", "high risk"]):
+        high_risk_count = risk_summary.get("highRiskCount", 0)
+        risk_conc = kpis.get("riskConcentration", "N/A")
+        return f"Risk level: {risk}. High-risk records: {high_risk_count}. Risk concentration: {risk_conc}%. {root_cause}"
+    if any(w in q for w in ["design", "bod", "form factor"]):
+        design_rate = kpis.get("designChangeRate", "N/A")
+        return f"Design change rate: {design_rate}%. {root_cause}"
+    if any(w in q for w in ["schedule", "roj", "delay"]):
+        stability = kpis.get("scheduleStability", "N/A")
+        return f"Schedule stability: {stability}%. {root_cause}"
+    if any(w in q for w in ["new demand", "new record"]):
+        new_ratio = kpis.get("newDemandRatio", "N/A")
+        return f"New demand ratio: {new_ratio}%. {ctx.get('newRecordCount', 0)} new records this cycle."
+    if any(w in q for w in ["cancel"]):
+        cancel_rate = kpis.get("cancellationRate", "N/A")
+        return f"Cancellation rate: {cancel_rate}%."
+    if any(w in q for w in ["kpi", "metric", "score"]):
+        parts = [f"Design change rate: {kpis.get('designChangeRate', 'N/A')}%",
+                 f"Supplier reliability: {kpis.get('supplierReliability', 'N/A')}%",
+                 f"Demand volatility: {kpis.get('demandVolatility', 'N/A')}%",
+                 f"Schedule stability: {kpis.get('scheduleStability', 'N/A')}%",
+                 f"Risk concentration: {kpis.get('riskConcentration', 'N/A')}%"]
+        return "KPI Summary:\n" + "\n".join(f"• {p}" for p in parts)
     # Default: return full insight
     return ai_insight or root_cause or "No analysis available for this question."
 

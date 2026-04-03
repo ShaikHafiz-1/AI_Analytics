@@ -86,6 +86,12 @@ def build_response(
         "unchangedRecordCount": total - len(changed),
         "newRecordCount": ctx.new_records,
 
+        # Contribution breakdown (percentage-based)
+        "contributionBreakdown": _contribution_breakdown(changed),
+
+        # Enhanced KPIs
+        "kpis": _compute_kpis(compared, changed),
+
         # Supplier
         "supplierSummary": {
             "changed": ctx.supplier_changed_count,
@@ -319,3 +325,66 @@ def _risk_label(level: str) -> str:
 def _trend_label(direction: str) -> str:
     return {"increasing": "Increase", "decreasing": "Decrease",
             "stable": "Stable", "volatile": "Volatile"}.get(direction, direction)
+
+
+def _contribution_breakdown(changed: List[ComparedRecord]) -> dict:
+    """Percentage-based contribution breakdown by change driver."""
+    total = len(changed) if changed else 1
+    qty = sum(1 for r in changed if r.qty_changed)
+    sup = sum(1 for r in changed if r.supplier_changed)
+    des = sum(1 for r in changed if r.design_changed)
+    roj = sum(1 for r in changed if r.roj_changed)
+    return {
+        "quantity": round(qty / total * 100, 1),
+        "supplier": round(sup / total * 100, 1),
+        "design": round(des / total * 100, 1),
+        "schedule": round(roj / total * 100, 1),
+        "quantityCount": qty,
+        "supplierCount": sup,
+        "designCount": des,
+        "scheduleCount": roj,
+    }
+
+
+def _compute_kpis(records: List[ComparedRecord], changed: List[ComparedRecord]) -> dict:
+    """Compute enhanced KPIs from record data."""
+    total = len(records) if records else 1
+    changed_count = len(changed)
+
+    # Design change rate
+    design_count = sum(1 for r in changed if r.design_changed)
+    design_change_rate = round(design_count / total * 100, 1)
+
+    # Supplier reliability (% of records with supplier date missing or supplier changed)
+    supplier_issues = sum(1 for r in records if getattr(r, 'is_supplier_date_missing', False) or r.supplier_changed)
+    supplier_reliability = round(100 - (supplier_issues / total * 100), 1)
+
+    # Demand volatility (% of records with qty change)
+    qty_changed = sum(1 for r in changed if r.qty_changed)
+    demand_volatility = round(qty_changed / total * 100, 1)
+
+    # Schedule stability (% of records WITHOUT roj change)
+    roj_changed = sum(1 for r in changed if r.roj_changed)
+    schedule_stability = round(100 - (roj_changed / total * 100), 1)
+
+    # New demand ratio
+    new_demand = sum(1 for r in records if getattr(r, 'is_new_demand', False))
+    new_demand_ratio = round(new_demand / total * 100, 1)
+
+    # Cancellation rate
+    cancelled = sum(1 for r in records if getattr(r, 'is_cancelled', False))
+    cancellation_rate = round(cancelled / total * 100, 1)
+
+    # Risk concentration (% of changed records that are high risk)
+    high_risk = sum(1 for r in changed if r.risk_level != "Normal")
+    risk_concentration = round(high_risk / max(changed_count, 1) * 100, 1)
+
+    return {
+        "designChangeRate": design_change_rate,
+        "supplierReliability": supplier_reliability,
+        "demandVolatility": demand_volatility,
+        "scheduleStability": schedule_stability,
+        "newDemandRatio": new_demand_ratio,
+        "cancellationRate": cancellation_rate,
+        "riskConcentration": risk_concentration,
+    }

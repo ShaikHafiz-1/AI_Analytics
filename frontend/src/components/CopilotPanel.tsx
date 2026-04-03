@@ -12,9 +12,23 @@ interface CopilotPanelProps {
   isOpen: boolean;
   onClose: () => void;
   context: DashboardContext;
+  selectedEntity?: { type: string; item: string } | null;
 }
 
-function buildStarterPrompts(ctx: DashboardContext): string[] {
+function buildStarterPrompts(ctx: DashboardContext, entity?: { type: string; item: string } | null): string[] {
+  if (entity) {
+    const { type, item } = entity;
+    const prompts = [
+      `Why is ${item} showing changes?`,
+      `What is the risk level for ${item}?`,
+      `What actions should be taken for ${item}?`,
+    ];
+    if (type === "location") prompts.push(`Which material groups changed at ${item}?`);
+    if (type === "material") prompts.push(`Which locations are affected by ${item} changes?`);
+    if (type === "supplier") prompts.push(`What materials does ${item} supply?`);
+    if (type === "risk") prompts.push(`Which locations have ${item}?`);
+    return prompts;
+  }
   const prompts = [
     `Why is planning health ${ctx.status?.toLowerCase() ?? "low"}?`,
     "What changed most this cycle?",
@@ -26,7 +40,15 @@ function buildStarterPrompts(ctx: DashboardContext): string[] {
   return prompts;
 }
 
-function buildGreeting(ctx: DashboardContext): string {
+function buildGreeting(ctx: DashboardContext, entity?: { type: string; item: string } | null): string {
+  if (entity) {
+    return (
+      `I'm focused on ${entity.type}: ${entity.item}\n\n` +
+      `📊 Planning Health: ${ctx.planningHealth}/100 (${ctx.status})\n` +
+      `📦 Changed Records: ${ctx.changedRecordCount} of ${ctx.totalRecords}\n\n` +
+      `Ask me about this ${entity.type} — why it changed, what the risk is, or what actions to take.`
+    );
+  }
   const insight = ctx.aiInsight ? ctx.aiInsight.slice(0, 120) + (ctx.aiInsight.length > 120 ? "…" : "") : "N/A";
   return (
     `I've loaded the current planning analysis context.\n\n` +
@@ -78,23 +100,30 @@ function buildFallbackAnswer(question: string, ctx: DashboardContext): string {
   return `${ctx.aiInsight ?? ""}\n\nRoot Cause: ${ctx.rootCause ?? "N/A"}\n\nRecommended Actions:\n${(ctx.recommendedActions ?? []).map(a => `• ${a}`).join("\n")}`;
 }
 
-export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, context }) => {
+export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, context, selectedEntity }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevOpenRef = useRef(false);
+  const prevEntityRef = useRef<string | null>(null);
 
-  // Initialize greeting when panel opens
+  // Initialize greeting when panel opens or entity changes
   useEffect(() => {
-    if (isOpen && !prevOpenRef.current) {
-      setMessages([
-        { role: "assistant", content: buildGreeting(context), timestamp: Date.now() },
-      ]);
+    const entityKey = selectedEntity ? `${selectedEntity.type}:${selectedEntity.item}` : null;
+    if (isOpen && (!prevOpenRef.current || entityKey !== prevEntityRef.current)) {
+      const greeting: ChatMessage = { role: "assistant", content: buildGreeting(context, selectedEntity), timestamp: Date.now() };
+      if (prevOpenRef.current && entityKey !== prevEntityRef.current) {
+        // Entity changed while panel open — append context switch message
+        setMessages((prev) => [...prev, greeting]);
+      } else {
+        setMessages([greeting]);
+      }
+      prevEntityRef.current = entityKey;
     }
     prevOpenRef.current = isOpen;
-  }, [isOpen, context]);
+  }, [isOpen, context, selectedEntity]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -154,7 +183,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
 
   if (!isOpen) return null;
 
-  const starters = buildStarterPrompts(context);
+  const starters = buildStarterPrompts(context, selectedEntity);
 
   return (
     <div className="fixed top-0 right-0 h-full w-[400px] bg-[#161b22] border-l border-[#21262d] flex flex-col z-40 shadow-2xl">

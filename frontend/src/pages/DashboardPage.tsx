@@ -4,6 +4,8 @@ import { fetchDashboard } from "../services/api";
 import { validateDashboardResponse } from "../services/validation";
 import { Tooltip, val } from "../components/Tooltip";
 import { CopilotPanel } from "../components/CopilotPanel";
+import { DrillDownPanel, DrillDownType } from "../components/DrillDownPanel";
+import { TopRiskTable } from "../components/TopRiskTable";
 import { AlertBanner } from "../components/AlertBanner";
 import { PlanningHealthCard } from "../components/PlanningHealthCard";
 import { ForecastCard } from "../components/ForecastCard";
@@ -219,6 +221,12 @@ export const DashboardPage: React.FC = () => {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [blobFailed, setBlobFailed] = useState(false);
   const [isMockData, setIsMockData] = useState(false);
+  const [drillDown, setDrillDown] = useState<{ type: DrillDownType; item: string } | null>(null);
+
+  const openDrillDown = (type: DrillDownType, item: string) => {
+    setDrillDown({ type, item });
+  };
+  const closeDrillDown = () => setDrillDown(null);
 
   const loadMockData = () => {
     import("../mock/sample_payload.json").then((m) => {
@@ -313,16 +321,17 @@ export const DashboardPage: React.FC = () => {
 
       {error && <div className="bg-yellow-900/20 border-b border-yellow-500/30 px-6 py-2 text-xs text-yellow-400">{error}</div>}
       {isMockData && <div className="bg-yellow-900/30 border-b border-yellow-500/40 px-6 py-2 text-xs text-yellow-300 flex items-center gap-2">⚠ Viewing mock data for testing — not connected to Blob Storage</div>}
+      {drillDown && (
+        <div className="bg-blue-900/20 border-b border-blue-500/30 px-6 py-2 text-xs text-blue-300 flex items-center justify-between">
+          <span>Viewing context: <span className="capitalize">{drillDown.type}</span> · <span className="font-semibold text-white">{drillDown.item}</span></span>
+          <button onClick={closeDrillDown} className="text-gray-400 hover:text-white text-xs ml-4">✕ Clear</button>
+        </div>
+      )}
 
-      <div className={`transition-all duration-300 ${copilotOpen ? "lg:pr-[400px]" : ""}`}>
+      <div className={`transition-all duration-300 ${copilotOpen ? "lg:pr-[400px]" : ""} ${drillDown ? "lg:pr-[420px]" : ""}`}>
         <main className="max-w-7xl mx-auto px-4 py-6 flex flex-col gap-6">
 
-          {data.alerts?.shouldTrigger && (
-            <Tooltip content={<AlertTooltip data={data} />}>
-              <AlertBanner alert={data.alerts} />
-            </Tooltip>
-          )}
-
+          {/* 1. KPI BAR */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Tooltip content={<HealthTooltip data={data} />}><div className={hoverCard}><PlanningHealthCard score={data.planningHealth} status={data.status} /></div></Tooltip>
             <Tooltip content={<ForecastTooltip data={data} />}><div className={hoverCard}><ForecastCard forecastNew={data.forecastNew} forecastOld={data.forecastOld} trendDelta={data.trendDelta} trendDirection={data.trendDirection} /></div></Tooltip>
@@ -331,6 +340,36 @@ export const DashboardPage: React.FC = () => {
 
           <SummaryTiles data={data} />
 
+          {/* 2. ALERTS */}
+          {data.alerts?.shouldTrigger && (
+            <Tooltip content={<AlertTooltip data={data} />}>
+              <AlertBanner alert={data.alerts} />
+            </Tooltip>
+          )}
+
+          {/* 3. TOP RISK AREAS */}
+          <TopRiskTable context={context} onSelect={openDrillDown} />
+
+          {/* 4. LOCATION + MATERIAL VIEW */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <DatacenterCard datacenterSummary={data.datacenterSummary} onLocationClick={(loc) => openDrillDown("location", loc)} />
+            <MaterialGroupCard materialGroupSummary={data.materialGroupSummary} onMaterialClick={(mg) => openDrillDown("material", mg)} />
+          </div>
+
+          {/* 5. SUPPLIER + DESIGN + ROJ */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <SupplierCard supplierSummary={data.supplierSummary} onSupplierClick={(s) => openDrillDown("supplier", s)} />
+            <DesignCard designSummary={data.designSummary} />
+            <RojCard rojSummary={data.rojSummary} />
+          </div>
+
+          {/* 6. TREND + RISK (combined row) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Tooltip content={<RiskTooltip data={data} />}><div className={hoverCard}><RiskCard riskSummary={data.riskSummary} onRiskClick={(r) => openDrillDown("risk", r)} /></div></Tooltip>
+            <Tooltip content={<RootCauseTooltip data={data} />}><div className={hoverCard}><RootCauseCard rootCause={data.rootCause} /></div></Tooltip>
+          </div>
+
+          {/* 7. AI INSIGHT (reduced dominance, moved down) */}
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
             <Tooltip content={<AIInsightTooltip data={data} />}>
               <div className={hoverCard}><AIInsightCard aiInsight={data.aiInsight} /></div>
@@ -340,26 +379,11 @@ export const DashboardPage: React.FC = () => {
               className={`px-4 py-3 rounded-2xl border text-sm font-medium transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 flex flex-col items-center gap-1 min-w-[120px] ${copilotOpen ? "bg-blue-900/40 border-blue-400 text-blue-300" : "bg-blue-900/20 border-blue-500/30 text-blue-400 hover:bg-blue-900/40"}`}
             >
               <span className="text-xl">✦</span>
-              <span>Ask Copilot</span>
+              <span>Ask Copilot{drillDown ? ` about ${drillDown.item}` : ""}</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <DatacenterCard datacenterSummary={data.datacenterSummary} />
-            <MaterialGroupCard materialGroupSummary={data.materialGroupSummary} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <SupplierCard supplierSummary={data.supplierSummary} />
-            <DesignCard designSummary={data.designSummary} />
-            <RojCard rojSummary={data.rojSummary} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Tooltip content={<RiskTooltip data={data} />}><div className={hoverCard}><RiskCard riskSummary={data.riskSummary} /></div></Tooltip>
-            <Tooltip content={<RootCauseTooltip data={data} />}><div className={hoverCard}><RootCauseCard rootCause={data.rootCause} /></div></Tooltip>
-          </div>
-
+          {/* 8. ACTIONS */}
           <ActionsPanel
             recommendedActions={data.recommendedActions}
             onNotifyPlanner={() => alert("Notifying planner...")}
@@ -369,7 +393,17 @@ export const DashboardPage: React.FC = () => {
         </main>
       </div>
 
-      <CopilotPanel isOpen={copilotOpen} onClose={() => setCopilotOpen(false)} context={context} />
+      {/* Panels */}
+      <CopilotPanel isOpen={copilotOpen} onClose={() => setCopilotOpen(false)} context={context} selectedEntity={drillDown} />
+      {drillDown && (
+        <DrillDownPanel
+          type={drillDown.type}
+          selectedItem={drillDown.item}
+          contextData={context}
+          isOpen={true}
+          onClose={closeDrillDown}
+        />
+      )}
       {DEBUG_MODE && <DebugPanel data={data} />}
     </div>
   );
