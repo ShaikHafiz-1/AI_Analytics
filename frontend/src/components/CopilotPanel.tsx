@@ -39,12 +39,43 @@ function buildGreeting(ctx: DashboardContext): string {
 }
 
 function buildFallbackAnswer(question: string, ctx: DashboardContext): string {
-  return (
-    `Based on the current dashboard context (backend unavailable):\n\n` +
-    `${ctx.aiInsight ?? ""}\n\n` +
-    `Root Cause: ${ctx.rootCause ?? "N/A"}\n\n` +
-    `Recommended Actions:\n${(ctx.recommendedActions ?? []).map((a) => `• ${a}`).join("\n")}`
-  );
+  const q = question.toLowerCase();
+  const pct = ctx.totalRecords > 0 ? ((ctx.changedRecordCount / ctx.totalRecords) * 100).toFixed(1) : "0";
+
+  if (q.includes("health") || q.includes("critical") || q.includes("score")) {
+    return `Planning health is ${ctx.planningHealth}/100 (${ctx.status}). ${pct}% of records changed. Risk: ${ctx.riskSummary?.highestRiskLevel ?? "N/A"}. ${ctx.aiInsight ?? ""}`;
+  }
+  if (q.includes("location") || q.includes("datacenter") || q.includes("site")) {
+    const topLocs = (ctx.datacenterSummary ?? []).slice(0, 3).map(d => `${d.locationId}: ${d.changed} changed`).join(", ");
+    return `Top locations: ${topLocs || ctx.drivers?.location || "N/A"}. ${ctx.datacenterCount ?? 0} total datacenters.`;
+  }
+  if (q.includes("material") || q.includes("group") || q.includes("category")) {
+    const topGroups = (ctx.materialGroupSummary ?? []).slice(0, 3).map(g => `${g.materialGroup}: ${g.changed} changed`).join(", ");
+    return `Top material groups: ${topGroups || "N/A"}. ${(ctx.materialGroups ?? []).length} groups total.`;
+  }
+  if (q.includes("supplier")) {
+    return `Supplier changes: ${ctx.supplierSummary?.changed ?? 0}. Top supplier: ${ctx.drivers?.supplier ?? "N/A"}. ${ctx.rootCause ?? ""}`;
+  }
+  if (q.includes("risk") || q.includes("high risk")) {
+    return `Risk level: ${ctx.riskSummary?.level ?? "N/A"} (${ctx.riskSummary?.highestRiskLevel ?? "Normal"}). High-risk records: ${ctx.highRiskRecordCount ?? 0}. ${ctx.rootCause ?? ""}`;
+  }
+  if (q.includes("demand") || q.includes("driven") || q.includes("driver")) {
+    return `Primary driver: ${ctx.drivers?.changeType ?? "N/A"}. Qty changes: ${ctx.riskSummary?.quantityChangedCount ?? 0}, Supplier: ${ctx.riskSummary?.supplierChangedCount ?? 0}, Design: ${ctx.riskSummary?.designChangedCount ?? 0}, Schedule: ${ctx.riskSummary?.rojChangedCount ?? 0}.`;
+  }
+  if (q.includes("action") || q.includes("planner") || q.includes("do next") || q.includes("recommend")) {
+    return "Recommended actions:\n" + (ctx.recommendedActions ?? []).map(a => `• ${a}`).join("\n");
+  }
+  if (q.includes("changed") || q.includes("what changed")) {
+    return `${ctx.changedRecordCount} records changed (${pct}% of ${ctx.totalRecords}). Primary driver: ${ctx.drivers?.changeType ?? "N/A"}. Top location: ${ctx.drivers?.location ?? "N/A"}. ${ctx.rootCause ?? ""}`;
+  }
+  if (q.includes("forecast") || q.includes("trend") || q.includes("increase") || q.includes("decrease")) {
+    return `Forecast: ${ctx.forecastNew?.toLocaleString()} (prev: ${ctx.forecastOld?.toLocaleString()}). Delta: ${ctx.trendDelta >= 0 ? "+" : ""}${ctx.trendDelta?.toLocaleString()}. Trend: ${ctx.trendDirection}. ${ctx.aiInsight ?? ""}`;
+  }
+  if (q.includes("blob") || q.includes("file") || q.includes("source")) {
+    return `Data source: ${ctx.dataMode}. Last refreshed: ${ctx.lastRefreshedAt ?? "N/A"}.`;
+  }
+  // Default: return full insight + root cause
+  return `${ctx.aiInsight ?? ""}\n\nRoot Cause: ${ctx.rootCause ?? "N/A"}\n\nRecommended Actions:\n${(ctx.recommendedActions ?? []).map(a => `• ${a}`).join("\n")}`;
 }
 
 export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, context }) => {
@@ -98,7 +129,6 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
     try {
       const res = await fetchExplain({
         question: question.trim(),
-        mode: "cached",
         context,
       });
       clearTimeout(timeoutId);

@@ -131,9 +131,9 @@ def test_build_summary_from_pipeline():
 
 def test_build_response_full_pipeline():
     compared = _run_pipeline(CURRENT_ROWS, PREVIOUS_ROWS)
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
 
-    assert result["dataMode"] == "live"
+    assert result["dataMode"] == "blob"
     assert result["totalRecords"] == 2
     assert result["changedRecordCount"] == 1
     assert result["planningHealth"] > 0
@@ -148,7 +148,7 @@ def test_build_response_full_pipeline():
 
 def test_build_response_json_serializable():
     compared = _run_pipeline(CURRENT_ROWS, PREVIOUS_ROWS)
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     # Must be JSON serializable — no datetime objects etc.
     serialized = json.dumps(result, default=str)
     parsed = json.loads(serialized)

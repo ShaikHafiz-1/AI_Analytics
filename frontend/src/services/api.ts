@@ -9,25 +9,29 @@ function endpoint(path: string): string {
 
 const headers = { "Content-Type": "application/json" };
 
-export async function fetchDashboard(payload: {
-  mode?: "live" | "cached" | "blob";
+/**
+ * Fetches dashboard data from blob-backed backend.
+ * Uses cached snapshot by default; falls back to blob reload if no snapshot.
+ */
+export async function fetchDashboard(payload?: {
   location_id?: string;
   material_group?: string;
-  current_rows?: object[];
-  previous_rows?: object[];
 }): Promise<DashboardResponse> {
   const res = await fetch(endpoint("planning-dashboard-v2"), {
     method: "POST",
     headers,
-    body: JSON.stringify({ mode: "cached", ...payload }),
+    body: JSON.stringify({ mode: "blob", ...payload }),
   });
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
+/**
+ * Sends a question to the explain endpoint with current dashboard context.
+ * All answers are grounded in blob-derived analysis data.
+ */
 export async function fetchExplain(payload: {
   question: string;
-  mode?: "live" | "cached";
   location_id?: string;
   material_group?: string;
   context?: Partial<DashboardContext>;
@@ -35,27 +39,32 @@ export async function fetchExplain(payload: {
   const res = await fetch(endpoint("explain"), {
     method: "POST",
     headers,
-    body: JSON.stringify({ mode: "cached", ...payload }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return res.json();
 }
 
+/**
+ * Fetches debug snapshot with intermediate pipeline values.
+ */
 export async function fetchDebugSnapshot(params?: {
-  mode?: "cached" | "live" | "blob";
   location_id?: string;
   material_group?: string;
 }): Promise<DebugSnapshotResponse> {
   const res = await fetch(endpoint("debug-snapshot"), {
     method: "POST",
     headers,
-    body: JSON.stringify(params ?? {}),
+    body: JSON.stringify({ mode: "blob", ...params }),
   });
   if (!res.ok) throw new Error(`Debug snapshot error ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
-export async function triggerDailyRefresh(source: "blob" | "sharepoint" = "blob"): Promise<{
+/**
+ * Triggers daily refresh from Blob Storage.
+ */
+export async function triggerDailyRefresh(): Promise<{
   status: string;
   lastRefreshedAt: string;
   totalRecords: number;
@@ -65,7 +74,7 @@ export async function triggerDailyRefresh(source: "blob" | "sharepoint" = "blob"
   const res = await fetch(endpoint("daily-refresh"), {
     method: "POST",
     headers,
-    body: JSON.stringify({ source }),
+    body: JSON.stringify({ source: "blob" }),
   });
   if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
   return res.json();

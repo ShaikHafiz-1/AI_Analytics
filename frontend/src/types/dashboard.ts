@@ -2,7 +2,7 @@ export type TrendDirection = "Increase" | "Decrease" | "Stable" | "Volatile";
 export type HealthStatus = "Healthy" | "Stable" | "At Risk" | "Critical";
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type AlertSeverity = "info" | "warning" | "high" | "critical";
-export type DataMode = "live" | "cached" | "blob" | "sharepoint";
+export type DataMode = "blob" | "cached" | "mock";
 
 export interface SupplierDetail {
   supplier: string;
@@ -178,11 +178,29 @@ export interface DashboardContext {
   };
   dataMode: DataMode;
   lastRefreshedAt: string;
+  // Enriched MCP fields for Copilot Q&A
+  datacenterSummary: DatacenterSummary[];
+  materialGroupSummary: MaterialGroupSummary[];
+  supplierSummary: {
+    changed: number;
+    topSupplier: string | null;
+  };
+  designSummary: {
+    status: string;
+    bodChangedCount: number;
+    formFactorChangedCount: number;
+  };
+  rojSummary: {
+    status: string;
+    changedCount: number;
+  };
+  datacenterCount: number;
+  materialGroups: string[];
+  highRiskRecordCount: number;
 }
 
 export interface ExplainRequest {
   question: string;
-  mode?: "live" | "cached";
   location_id?: string;
   material_group?: string;
   context?: Partial<DashboardContext>;

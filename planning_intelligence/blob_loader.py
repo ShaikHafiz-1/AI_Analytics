@@ -131,11 +131,6 @@ def load_file_from_bytes(content: bytes, label: str = "file", filename: str = ""
         raise BlobLoaderError(f"Failed to parse file ({label}): {e}")
 
 
-def load_excel_from_bytes(content: bytes, label: str = "file"):
-    """Legacy wrapper — use load_file_from_bytes instead."""
-    return load_file_from_bytes(content, label=label)
-
-
 # ---------------------------------------------------------------------------
 # Standardize + validate columns
 # ---------------------------------------------------------------------------

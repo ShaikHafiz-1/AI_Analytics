@@ -19,7 +19,7 @@ import { SupplierCard } from "../components/SupplierCard";
 import { DesignCard } from "../components/DesignCard";
 import { RojCard } from "../components/RojCard";
 
-const USE_MOCK = process.env.REACT_APP_USE_MOCK !== "false";
+const USE_MOCK = process.env.REACT_APP_USE_MOCK === "true"; // OFF by default — Blob is the source of truth
 const DEBUG_MODE = process.env.REACT_APP_DEBUG_MODE === "true";
 
 function buildDashboardContext(data: DashboardResponse): DashboardContext {
@@ -32,6 +32,15 @@ function buildDashboardContext(data: DashboardResponse): DashboardContext {
     rootCause: data.rootCause, recommendedActions: data.recommendedActions,
     alerts: data.alerts, drivers: data.drivers, filters: data.filters,
     dataMode: data.dataMode, lastRefreshedAt: data.lastRefreshedAt,
+    // Enriched MCP fields for Copilot Q&A
+    datacenterSummary: data.datacenterSummary ?? [],
+    materialGroupSummary: data.materialGroupSummary ?? [],
+    supplierSummary: { changed: data.supplierSummary?.changed ?? 0, topSupplier: data.supplierSummary?.topSupplier ?? null },
+    designSummary: { status: data.designSummary?.status ?? "N/A", bodChangedCount: data.designSummary?.bodChangedCount ?? 0, formFactorChangedCount: data.designSummary?.formFactorChangedCount ?? 0 },
+    rojSummary: { status: data.rojSummary?.status ?? "N/A", changedCount: data.rojSummary?.changedCount ?? 0 },
+    datacenterCount: data.datacenterCount ?? 0,
+    materialGroups: data.materialGroups ?? [],
+    highRiskRecordCount: data.riskSummary?.highRiskCount ?? 0,
   };
 }
 
@@ -196,10 +205,9 @@ function AlertTooltip({ data }: { data: DashboardResponse }) {
 }
 
 const modeColor: Record<DataMode, string> = {
-  live: "bg-green-900/30 text-green-400",
-  cached: "bg-blue-900/30 text-blue-400",
   blob: "bg-purple-900/30 text-purple-400",
-  sharepoint: "bg-indigo-900/30 text-indigo-400",
+  cached: "bg-blue-900/30 text-blue-400",
+  mock: "bg-yellow-900/30 text-yellow-400",
 };
 
 const hoverCard = "transition-all duration-150 rounded-2xl hover:ring-1 hover:ring-[rgba(88,166,255,0.4)]";
@@ -209,20 +217,31 @@ export const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [blobFailed, setBlobFailed] = useState(false);
+  const [isMockData, setIsMockData] = useState(false);
+
+  const loadMockData = () => {
+    import("../mock/sample_payload.json").then((m) => {
+      const mockData = { ...(m.default as DashboardResponse), dataMode: "mock" as DataMode };
+      setData(mockData);
+      setIsMockData(true);
+      setBlobFailed(false);
+      setError(null);
+      setLoading(false);
+    });
+  };
 
   useEffect(() => {
     if (USE_MOCK) {
-      import("../mock/sample_payload.json").then((m) => {
-        setData(m.default as DashboardResponse);
-        setLoading(false);
-      });
+      loadMockData();
       return;
     }
-    fetchDashboard({ mode: "cached" })
+    fetchDashboard({})
       .then((d) => { validateDashboardResponse(d); setData(d); setLoading(false); })
       .catch((err) => {
-        setError(`API unavailable: ${err.message}. Showing cached demo data.`);
-        import("../mock/sample_payload.json").then((m) => { setData(m.default as DashboardResponse); setLoading(false); });
+        setError(`Blob data unavailable: ${err.message}`);
+        setBlobFailed(true);
+        setLoading(false);
       });
   }, []);
 
@@ -230,6 +249,25 @@ export const DashboardPage: React.FC = () => {
     <div className="min-h-screen bg-bg text-white">
       <header className="border-b border-gray-800 px-6 py-4"><div className="h-6 w-48 bg-gray-800 rounded animate-pulse" /></header>
       <SkeletonDashboard />
+    </div>
+  );
+
+  if (blobFailed && !data) return (
+    <div className="min-h-screen bg-bg flex items-center justify-center">
+      <div className="bg-card border border-red-500/30 rounded-2xl p-8 max-w-md text-center flex flex-col gap-4">
+        <p className="text-red-400 text-lg font-semibold">Blob data unavailable</p>
+        <p className="text-gray-400 text-sm">{error}</p>
+        <div className="flex gap-3 justify-center mt-2">
+          <button onClick={() => { setLoading(true); setBlobFailed(false); setError(null); fetchDashboard({}).then((d) => { validateDashboardResponse(d); setData(d); setLoading(false); }).catch((err) => { setError(err.message); setBlobFailed(true); setLoading(false); }); }}
+            className="px-4 py-2 rounded-lg bg-blue-900/30 border border-blue-500/30 text-blue-400 text-sm font-medium hover:bg-blue-900/50 transition cursor-pointer">
+            Retry Blob
+          </button>
+          <button onClick={loadMockData}
+            className="px-4 py-2 rounded-lg bg-yellow-900/30 border border-yellow-500/30 text-yellow-400 text-sm font-medium hover:bg-yellow-900/50 transition cursor-pointer">
+            Load Mock Data
+          </button>
+        </div>
+      </div>
     </div>
   );
 
@@ -274,6 +312,7 @@ export const DashboardPage: React.FC = () => {
       </header>
 
       {error && <div className="bg-yellow-900/20 border-b border-yellow-500/30 px-6 py-2 text-xs text-yellow-400">{error}</div>}
+      {isMockData && <div className="bg-yellow-900/30 border-b border-yellow-500/40 px-6 py-2 text-xs text-yellow-300 flex items-center gap-2">⚠ Viewing mock data for testing — not connected to Blob Storage</div>}
 
       <div className={`transition-all duration-300 ${copilotOpen ? "lg:pr-[400px]" : ""}`}>
         <main className="max-w-7xl mx-auto px-4 py-6 flex flex-col gap-6">

@@ -107,7 +107,7 @@ REQUIRED_FIELDS = [
 
 def test_build_response_contains_all_required_fields():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     for field in REQUIRED_FIELDS:
         assert field in result, f"Missing field: {field}"
 
@@ -121,14 +121,14 @@ def test_build_response_data_mode_preserved():
 
 def test_build_response_counts_correct():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     assert result["totalRecords"] == len(compared)
     assert result["changedRecordCount"] + result["unchangedRecordCount"] == result["totalRecords"]
 
 
 def test_build_response_risk_summary_structure():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     rs = result["riskSummary"]
     assert "level" in rs
     assert "highestRiskLevel" in rs
@@ -139,21 +139,21 @@ def test_build_response_risk_summary_structure():
 
 def test_build_response_recommended_actions_is_list():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     assert isinstance(result["recommendedActions"], list)
     assert len(result["recommendedActions"]) > 0
 
 
 def test_build_response_json_serializable():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     serialized = json.dumps(result, default=str)
     parsed = json.loads(serialized)
     assert parsed["totalRecords"] == len(compared)
 
 
 def test_build_response_empty_records():
-    result = build_response([], [], data_mode="live")
+    result = build_response([], [], data_mode="blob")
     assert result["totalRecords"] == 0
     assert result["changedRecordCount"] == 0
     assert result["planningHealth"] == 100
@@ -161,14 +161,14 @@ def test_build_response_empty_records():
 
 def test_build_response_filters_preserved():
     compared = _pipeline()
-    result = build_response(compared, [], location_id="LOC001", material_group="PUMP", data_mode="live")
+    result = build_response(compared, [], location_id="LOC001", material_group="PUMP", data_mode="blob")
     assert result["filters"]["locationId"] == "LOC001"
     assert result["filters"]["materialGroup"] == "PUMP"
 
 
 def test_build_response_drivers_structure():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     d = result["drivers"]
     assert "location" in d
     assert "supplier" in d
@@ -179,7 +179,7 @@ def test_build_response_drivers_structure():
 
 def test_build_response_design_summary_structure():
     compared = _pipeline()
-    result = build_response(compared, [], data_mode="live")
+    result = build_response(compared, [], data_mode="blob")
     ds = result["designSummary"]
     assert "status" in ds
     assert "bodChangedCount" in ds

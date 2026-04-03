@@ -192,90 +192,47 @@ def planning_dashboard(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="planning-dashboard-v2", methods=["POST"])
 def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Hybrid AI dashboard endpoint with mode switching.
-
-    Modes:
-      "cached" (default) — returns stored daily snapshot instantly
-      "live"             — reads current_rows/previous_rows from request body
-      "blob"             — reads directly from Azure Blob Storage (primary source)
-      "sharepoint"       — reads from SharePoint (optional legacy mode)
+    Blob-first AI dashboard endpoint.
+    Reads from cached snapshot first; falls back to live blob reload.
     """
     logging.info("Planning Dashboard v2 triggered.")
 
     try:
         body = req.get_json()
     except ValueError:
-        return _error("Invalid JSON body.", 400)
+        body = {}
 
-    mode: str = body.get("mode", "cached").lower()
-    location_id: Optional[str] = body.get("location_id")
-    material_group: Optional[str] = body.get("material_group")
-    recurring_threshold: int = int(body.get("recurring_threshold", 3))
+    location_id: Optional[str] = body.get("location_id") if body else None
+    material_group: Optional[str] = body.get("material_group") if body else None
 
-    # ----------------------------------------------------------------
-    # CACHED MODE — return snapshot immediately
-    # ----------------------------------------------------------------
-    if mode == "cached":
-        snap = load_snapshot()
-        if snap:
-            # Apply filters to detail records if requested
-            if location_id or material_group:
-                snap = _filter_snapshot(snap, location_id, material_group)
-            return func.HttpResponse(
-                json.dumps(snap, default=str),
-                mimetype="application/json",
-                status_code=200,
-            )
-        # No snapshot yet — fall through to live
-        logging.info("No snapshot found, falling back to live mode.")
-        mode = "live"
+    # Try cached snapshot first (fast path)
+    snap = load_snapshot()
+    if snap:
+        if location_id or material_group:
+            snap = _filter_snapshot(snap, location_id, material_group)
+        return func.HttpResponse(
+            json.dumps(snap, default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
 
-    # ----------------------------------------------------------------
-    # BLOB MODE — load directly from Azure Blob Storage
-    # ----------------------------------------------------------------
-    if mode == "blob":
-        try:
-            from blob_loader import load_current_previous_from_blob, BlobLoaderError
-            current_rows, previous_rows = load_current_previous_from_blob()
-        except Exception as e:
-            return _error(f"Blob load failed: {str(e)}", 500)
-        snapshots_input = []
+    # No snapshot — load from blob directly
+    logging.info("No snapshot found, loading from blob.")
+    try:
+        from blob_loader import load_current_previous_from_blob
+        current_rows, previous_rows = load_current_previous_from_blob()
+    except Exception as e:
+        return _error(f"Blob load failed: {str(e)}", 500)
 
-    # ----------------------------------------------------------------
-    # SHAREPOINT MODE — load directly from SharePoint
-    # ----------------------------------------------------------------
-    elif mode == "sharepoint":
-        try:
-            from sharepoint_loader import load_current_previous_from_sharepoint, SharePointError
-            current_rows, previous_rows = load_current_previous_from_sharepoint()
-        except Exception as e:
-            return _error(f"SharePoint load failed: {str(e)}", 500)
-        snapshots_input = []
-
-    # ----------------------------------------------------------------
-    # LIVE MODE — rows provided in request body
-    # ----------------------------------------------------------------
-    else:
-        current_rows: List[dict] = body.get("current_rows", [])
-        previous_rows: List[dict] = body.get("previous_rows", [])
-        snapshots_input: List[dict] = body.get("snapshots", [])
-        if not current_rows:
-            return _error("'current_rows' is required for live mode.", 400)
-
-    # Analytics pipeline (shared by live + sharepoint)
     current_records = normalize_rows(current_rows, is_current=True)
     previous_records = normalize_rows(previous_rows, is_current=False)
     current_filtered = filter_records(current_records, location_id, material_group)
     previous_filtered = filter_records(previous_records, location_id, material_group)
     compared = compare_records(current_filtered, previous_filtered)
 
-    trends = []
-    if snapshots_input:
-        trends = analyze_trends(snapshots_input, location_id, material_group, recurring_threshold)
-
     result = build_response(
-        compared, trends, location_id, material_group,
-        data_mode=mode,
+        compared, [], location_id, material_group,
+        data_mode="blob",
     )
 
     return func.HttpResponse(
@@ -288,20 +245,12 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="daily-refresh", methods=["POST"])
 def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Triggers the daily Blob Storage refresh and saves a snapshot.
-    Optionally accepts {"source": "sharepoint"} for legacy SharePoint mode.
-    Default source is "blob".
+    Triggers daily refresh from Azure Blob Storage and saves a snapshot.
     """
-    logging.info("Manual daily refresh triggered.")
+    logging.info("Daily refresh triggered — loading from Blob Storage.")
     try:
         from run_daily_refresh import run_daily_refresh
-        body = {}
-        try:
-            body = req.get_json()
-        except ValueError:
-            pass
-        source = body.get("source", "blob")  # "blob" or "sharepoint"
-        result = run_daily_refresh(source=source)
+        result = run_daily_refresh()
         return func.HttpResponse(
             json.dumps({
                 "status": "ok",
@@ -338,7 +287,6 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
     if not question:
         return _error("question is required", 400)
 
-    mode: str = body.get("mode", "cached").lower()
     location_id: Optional[str] = body.get("location_id")
     material_group: Optional[str] = body.get("material_group")
     context: Optional[dict] = body.get("context")  # optional frontend DashboardContext
@@ -369,67 +317,28 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
             status_code=200,
         )
 
-    # --- Cached snapshot path ---
-    if mode == "cached":
-        snap = load_snapshot()
-        if not snap:
-            return _error("No cached snapshot available. Run daily refresh first.", 404)
-        answer = _generate_answer_from_context(question, snap)
-        return func.HttpResponse(
-            json.dumps({
-                "question": question,
-                "answer": answer,
-                "aiInsight": snap.get("aiInsight"),
-                "rootCause": snap.get("rootCause"),
-                "recommendedActions": snap.get("recommendedActions", []),
-                "alerts": snap.get("alerts"),
-                "drivers": snap.get("drivers"),
-                "planningHealth": snap.get("planningHealth"),
-                "dataMode": "cached",
-                "lastRefreshedAt": snap.get("lastRefreshedAt"),
-                "supportingMetrics": {
-                    "changedRecordCount": snap.get("changedRecordCount"),
-                    "totalRecords": snap.get("totalRecords"),
-                    "trendDelta": snap.get("trendDelta"),
-                    "planningHealth": snap.get("planningHealth"),
-                },
-                "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
-            }, default=str),
-            mimetype="application/json",
-            status_code=200,
-        )
-
-    # --- Live path ---
-    current_rows: List[dict] = body.get("current_rows", [])
-    previous_rows: List[dict] = body.get("previous_rows", [])
-    if not current_rows:
-        return _error("'current_rows' required for live explain.", 400)
-
-    current_records = normalize_rows(current_rows, is_current=True)
-    previous_records = normalize_rows(previous_rows, is_current=False)
-    current_filtered = filter_records(current_records, location_id, material_group)
-    previous_filtered = filter_records(previous_records, location_id, material_group)
-    compared = compare_records(current_filtered, previous_filtered)
-    result = build_response(compared, [], location_id, material_group, data_mode="live")
-    answer = _generate_answer_from_context(question, result)
-
+    # --- Cached snapshot path (blob-derived) ---
+    snap = load_snapshot()
+    if not snap:
+        return _error("No cached snapshot available. Run daily-refresh to load data from Blob Storage.", 404)
+    answer = _generate_answer_from_context(question, snap)
     return func.HttpResponse(
         json.dumps({
             "question": question,
             "answer": answer,
-            "aiInsight": result.get("aiInsight"),
-            "rootCause": result.get("rootCause"),
-            "recommendedActions": result.get("recommendedActions", []),
-            "alerts": result.get("alerts"),
-            "drivers": result.get("drivers"),
-            "planningHealth": result.get("planningHealth"),
-            "dataMode": "live",
-            "lastRefreshedAt": result.get("lastRefreshedAt"),
+            "aiInsight": snap.get("aiInsight"),
+            "rootCause": snap.get("rootCause"),
+            "recommendedActions": snap.get("recommendedActions", []),
+            "alerts": snap.get("alerts"),
+            "drivers": snap.get("drivers"),
+            "planningHealth": snap.get("planningHealth"),
+            "dataMode": "blob",
+            "lastRefreshedAt": snap.get("lastRefreshedAt"),
             "supportingMetrics": {
-                "changedRecordCount": result.get("changedRecordCount"),
-                "totalRecords": result.get("totalRecords"),
-                "trendDelta": result.get("trendDelta"),
-                "planningHealth": result.get("planningHealth"),
+                "changedRecordCount": snap.get("changedRecordCount"),
+                "totalRecords": snap.get("totalRecords"),
+                "trendDelta": snap.get("trendDelta"),
+                "planningHealth": snap.get("planningHealth"),
             },
             "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
         }, default=str),
@@ -556,13 +465,8 @@ def debug_snapshot(req: func.HttpRequest) -> func.HttpResponse:
             from blob_loader import load_current_previous_from_blob
             current_rows, previous_rows = load_current_previous_from_blob()
 
-        elif mode == "live":
-            current_rows = body.get("current_rows", [])
-            previous_rows = body.get("previous_rows", [])
-            if not current_rows:
-                return _error("'current_rows' is required for live mode.", 400)
         else:
-            return _error(f"Unknown mode: {mode}", 400)
+            return _error("Only blob and cached modes are supported.", 400)
 
         # Run pipeline capturing intermediate counts
         current_records = normalize_rows(current_rows, is_current=True)

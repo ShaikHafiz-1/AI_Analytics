@@ -16,7 +16,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not HAS_PANDAS, reason="pandas not installed in local env")
 from blob_loader import (
-    load_excel_from_bytes,
+    load_file_from_bytes,
     standardize_columns,
     validate_required_columns,
     BlobLoaderError,
@@ -40,26 +40,26 @@ VALID_DATA = {
 }
 
 
-def test_load_excel_from_bytes_valid():
+def test_load_file_from_bytes_valid():
     content = _make_excel_bytes(VALID_DATA)
-    df = load_excel_from_bytes(content, label="test")
+    df = load_file_from_bytes(content, label="test")
     assert len(df) == 2
     assert "LOCID" in df.columns
 
 
-def test_load_excel_from_bytes_empty_raises():
+def test_load_file_from_bytes_empty_raises():
     with pytest.raises(BlobLoaderError, match="Empty file content"):
-        load_excel_from_bytes(b"", label="test")
+        load_file_from_bytes(b"", label="test")
 
 
-def test_load_excel_from_bytes_invalid_raises():
+def test_load_file_from_bytes_invalid_raises():
     with pytest.raises(BlobLoaderError, match="Failed to parse"):
-        load_excel_from_bytes(b"not an excel file", label="test")
+        load_file_from_bytes(b"not an excel file", label="test")
 
 
 def test_standardize_columns_uppercases():
     content = _make_excel_bytes({"locid": ["LOC001"], "prdid": ["MAT-1"], "gscequipcat": ["PUMP"]})
-    df = load_excel_from_bytes(content)
+    df = load_file_from_bytes(content)
     df = standardize_columns(df)
     assert "LOCID" in df.columns
     assert "PRDID" in df.columns
@@ -67,7 +67,7 @@ def test_standardize_columns_uppercases():
 
 def test_standardize_columns_applies_aliases():
     content = _make_excel_bytes({"LOC ID": ["LOC001"], "PRD ID": ["MAT-1"], "GSCEQUIPCAT": ["PUMP"]})
-    df = load_excel_from_bytes(content)
+    df = load_file_from_bytes(content)
     df = standardize_columns(df)
     assert "LOCID" in df.columns
     assert "PRDID" in df.columns
@@ -75,14 +75,14 @@ def test_standardize_columns_applies_aliases():
 
 def test_validate_required_columns_passes():
     content = _make_excel_bytes(VALID_DATA)
-    df = load_excel_from_bytes(content)
+    df = load_file_from_bytes(content)
     df = standardize_columns(df)
     validate_required_columns(df, label="test")  # should not raise
 
 
 def test_validate_required_columns_missing_raises():
     content = _make_excel_bytes({"LOCID": ["LOC001"], "PRDID": ["MAT-1"]})  # missing GSCEQUIPCAT
-    df = load_excel_from_bytes(content)
+    df = load_file_from_bytes(content)
     df = standardize_columns(df)
     with pytest.raises(BlobLoaderError, match="Missing required columns"):
         validate_required_columns(df, label="test")
