@@ -331,7 +331,25 @@ export const DashboardPage: React.FC = () => {
       <div className={`transition-all duration-300 ${copilotOpen ? "lg:pr-[400px]" : ""} ${drillDown ? "lg:pr-[420px]" : ""}`}>
         <main className="max-w-7xl mx-auto px-4 py-6 flex flex-col gap-6">
 
-          {/* 1. KPI BAR */}
+          {/* 1. TOP ACTION BAR: AI Insight + Ask Copilot */}
+          {data?.aiInsight && (
+            <div className="flex flex-col md:flex-row gap-4 items-start">
+              <div className="flex-1">
+                <Tooltip content={<AIInsightTooltip data={data} />}>
+                  <div className={hoverCard}><AIInsightCard aiInsight={data.aiInsight} /></div>
+                </Tooltip>
+              </div>
+              <button
+                onClick={() => setCopilotOpen(true)}
+                className={`px-4 py-3 rounded-2xl border text-sm font-medium transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 flex flex-col items-center gap-1 min-w-[120px] shrink-0 ${copilotOpen ? "bg-blue-900/40 border-blue-400 text-blue-300" : "bg-blue-900/20 border-blue-500/30 text-blue-400 hover:bg-blue-900/40"}`}
+              >
+                <span className="text-xl">✦</span>
+                <span>Ask Copilot{drillDown ? ` about ${drillDown.item}` : ""}</span>
+              </button>
+            </div>
+          )}
+
+          {/* 2. KPI BAR */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Tooltip content={<HealthTooltip data={data} />}><div className={hoverCard}><PlanningHealthCard score={data.planningHealth} status={data.status} /></div></Tooltip>
             <Tooltip content={<ForecastTooltip data={data} />}><div className={hoverCard}><ForecastCard forecastNew={data.forecastNew} forecastOld={data.forecastOld} trendDelta={data.trendDelta} trendDirection={data.trendDirection} /></div></Tooltip>
@@ -340,47 +358,33 @@ export const DashboardPage: React.FC = () => {
 
           <SummaryTiles data={data} />
 
-          {/* 2. ALERTS */}
+          {/* 3. ALERTS */}
           {data.alerts?.shouldTrigger && (
             <Tooltip content={<AlertTooltip data={data} />}>
               <AlertBanner alert={data.alerts} />
             </Tooltip>
           )}
 
-          {/* 3. TOP RISK AREAS */}
+          {/* 4. TOP RISK AREAS */}
           <TopRiskTable context={context} onSelect={openDrillDown} />
 
-          {/* 4. LOCATION + MATERIAL VIEW */}
+          {/* 5. LOCATION + MATERIAL VIEW */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <DatacenterCard datacenterSummary={data.datacenterSummary} onLocationClick={(loc) => openDrillDown("location", loc)} />
             <MaterialGroupCard materialGroupSummary={data.materialGroupSummary} onMaterialClick={(mg) => openDrillDown("material", mg)} />
           </div>
 
-          {/* 5. SUPPLIER + DESIGN + ROJ */}
+          {/* 6. SUPPLIER + DESIGN + ROJ */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <SupplierCard supplierSummary={data.supplierSummary} onSupplierClick={(s) => openDrillDown("supplier", s)} />
             <DesignCard designSummary={data.designSummary} />
             <RojCard rojSummary={data.rojSummary} />
           </div>
 
-          {/* 6. TREND + RISK (combined row) */}
+          {/* 7. TREND + RISK */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Tooltip content={<RiskTooltip data={data} />}><div className={hoverCard}><RiskCard riskSummary={data.riskSummary} onRiskClick={(r) => openDrillDown("risk", r)} /></div></Tooltip>
             <Tooltip content={<RootCauseTooltip data={data} />}><div className={hoverCard}><RootCauseCard rootCause={data.rootCause} /></div></Tooltip>
-          </div>
-
-          {/* 7. AI INSIGHT (reduced dominance, moved down) */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
-            <Tooltip content={<AIInsightTooltip data={data} />}>
-              <div className={hoverCard}><AIInsightCard aiInsight={data.aiInsight} /></div>
-            </Tooltip>
-            <button
-              onClick={() => setCopilotOpen(true)}
-              className={`px-4 py-3 rounded-2xl border text-sm font-medium transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-400 flex flex-col items-center gap-1 min-w-[120px] ${copilotOpen ? "bg-blue-900/40 border-blue-400 text-blue-300" : "bg-blue-900/20 border-blue-500/30 text-blue-400 hover:bg-blue-900/40"}`}
-            >
-              <span className="text-xl">✦</span>
-              <span>Ask Copilot{drillDown ? ` about ${drillDown.item}` : ""}</span>
-            </button>
           </div>
 
           {/* 8. ACTIONS */}
