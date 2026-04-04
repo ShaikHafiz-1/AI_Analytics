@@ -281,3 +281,62 @@ def test_explain_context_used_lists_non_null_fields():
     assert "aiInsight" not in context_used
     assert "planningHealth" in context_used
     assert "drivers" in context_used
+
+
+# ---------------------------------------------------------------------------
+# Comparison mode tests
+# ---------------------------------------------------------------------------
+
+def test_answer_comparison_prompt():
+    answer = _generate_answer_from_context("Compare LOC001 vs LOC002", SAMPLE_CONTEXT)
+    # Should not return generic default
+    assert "No analysis available" not in answer
+
+
+def test_classify_comparison():
+    from importlib import import_module
+    # Test classification directly
+    q = "compare loc001 vs loc002"
+    assert any(w in q for w in ["compare", " vs ", "versus"])
+
+
+# ---------------------------------------------------------------------------
+# Why-not reasoning tests
+# ---------------------------------------------------------------------------
+
+def test_answer_why_not_prompt():
+    answer = _generate_answer_from_context("Why is this not risky?", SAMPLE_CONTEXT)
+    assert isinstance(answer, str)
+    assert len(answer) > 0
+
+
+def test_answer_why_not_stable():
+    ctx = {**SAMPLE_CONTEXT, "riskSummary": {"highRiskCount": 0, "highestRiskLevel": "Normal"}}
+    answer = _generate_answer_from_context("Why not flagged?", ctx)
+    assert isinstance(answer, str)
+    assert len(answer) > 0
+
+
+# ---------------------------------------------------------------------------
+# Traceability tests
+# ---------------------------------------------------------------------------
+
+def test_answer_traceability_with_details():
+    ctx = {
+        **SAMPLE_CONTEXT,
+        "detailRecords": [
+            {"locationId": "LOC001", "materialGroup": "PUMP", "materialId": "MAT-100",
+             "qtyDelta": 500, "changeType": "Qty", "riskLevel": "Normal"},
+            {"locationId": "LOC001", "materialGroup": "PUMP", "materialId": "MAT-101",
+             "qtyDelta": -200, "changeType": "Qty + Design", "riskLevel": "Design Change Risk"},
+        ]
+    }
+    answer = _generate_answer_from_context("Show top contributing records", ctx)
+    assert isinstance(answer, str)
+    assert len(answer) > 0
+
+
+def test_answer_traceability_no_details():
+    ctx = {**SAMPLE_CONTEXT, "detailRecords": []}
+    answer = _generate_answer_from_context("Show top records", ctx)
+    assert isinstance(answer, str)

@@ -294,11 +294,14 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
     # --- Context-grounded path ---
     if context:
         context_used = [k for k, v in context.items() if v is not None]
+        query_type = _classify_question(question)
         answer = _generate_answer_from_context(question, context)
+        explainability = _build_explainability(context, question)
         return func.HttpResponse(
             json.dumps({
                 "question": question,
                 "answer": answer,
+                "queryType": query_type,
                 "aiInsight": context.get("aiInsight"),
                 "rootCause": context.get("rootCause"),
                 "recommendedActions": context.get("recommendedActions", []),
@@ -312,6 +315,9 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
                     "planningHealth": context.get("planningHealth"),
                 },
                 "contextUsed": context_used,
+                "explainability": explainability,
+                "suggestedActions": _build_suggested_actions(question, context),
+                "followUpQuestions": _build_follow_ups(question, context),
             }, default=str),
             mimetype="application/json",
             status_code=200,
@@ -321,11 +327,14 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
     snap = load_snapshot()
     if not snap:
         return _error("No cached snapshot available. Run daily-refresh to load data from Blob Storage.", 404)
+    query_type = _classify_question(question)
     answer = _generate_answer_from_context(question, snap)
+    explainability = _build_explainability(snap, question)
     return func.HttpResponse(
         json.dumps({
             "question": question,
             "answer": answer,
+            "queryType": query_type,
             "aiInsight": snap.get("aiInsight"),
             "rootCause": snap.get("rootCause"),
             "recommendedActions": snap.get("recommendedActions", []),
@@ -341,6 +350,9 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
                 "planningHealth": snap.get("planningHealth"),
             },
             "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
+            "explainability": explainability,
+            "suggestedActions": _build_suggested_actions(question, snap),
+            "followUpQuestions": _build_follow_ups(question, snap),
         }, default=str),
         mimetype="application/json",
         status_code=200,
@@ -433,8 +445,197 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
                  f"Schedule stability: {kpis.get('scheduleStability', 'N/A')}%",
                  f"Risk concentration: {kpis.get('riskConcentration', 'N/A')}%"]
         return "KPI Summary:\n" + "\n".join(f"• {p}" for p in parts)
+
+    # --- COMPARISON MODE ---
+    if any(w in q for w in ["compare", " vs ", "versus", "difference between"]):
+        return _handle_comparison(q, ctx, dc_summary, mg_summary, details)
+
+    # --- WHY-NOT REASONING ---
+    if any(w in q for w in ["why not", "why isn't", "not risky", "not flagged", "not changed", "stable"]):
+        return _handle_why_not(q, ctx, dc_summary, mg_summary, details)
+
+    # --- TRACEABILITY / TOP RECORDS ---
+    if any(w in q for w in ["top record", "contributing", "impacted material", "show record", "detail"]):
+        return _handle_traceability(q, ctx, details)
+
     # Default: return full insight
     return ai_insight or root_cause or "No analysis available for this question."
+
+
+def _handle_comparison(q: str, ctx: dict, dc_summary: list, mg_summary: list, details: list) -> str:
+    """Handle comparison prompts by extracting two entities and comparing metrics."""
+    import re
+    # Try to extract two entities from "compare X vs Y" or "X versus Y"
+    match = re.search(r'(?:compare\s+)?(\S+)\s+(?:vs\.?|versus|and)\s+(\S+)', q)
+    if not match:
+        return "Please specify two entities to compare, e.g., 'Compare LOC001 vs LOC002'."
+
+    a, b = match.group(1).upper(), match.group(2).upper()
+
+    # Try location comparison
+    loc_a = next((d for d in dc_summary if d.get("locationId", "").upper() == a), None)
+    loc_b = next((d for d in dc_summary if d.get("locationId", "").upper() == b), None)
+    if loc_a and loc_b:
+        pct_a = round(loc_a["changed"] / max(loc_a["total"], 1) * 100, 1)
+        pct_b = round(loc_b["changed"] / max(loc_b["total"], 1) * 100, 1)
+        return (
+            f"📊 Comparison: {a} vs {b}\n\n"
+            f"{a}: {loc_a['changed']}/{loc_a['total']} changed ({pct_a}%)\n"
+            f"{b}: {loc_b['changed']}/{loc_b['total']} changed ({pct_b}%)\n\n"
+            f"{'→ ' + a + ' has more changes.' if loc_a['changed'] > loc_b['changed'] else '→ ' + b + ' has more changes.' if loc_b['changed'] > loc_a['changed'] else '→ Both have equal changes.'}"
+        )
+
+    # Try material group comparison
+    mg_a = next((g for g in mg_summary if g.get("materialGroup", "").upper() == a), None)
+    mg_b = next((g for g in mg_summary if g.get("materialGroup", "").upper() == b), None)
+    if mg_a and mg_b:
+        return (
+            f"📊 Comparison: {a} vs {b}\n\n"
+            f"{a}: {mg_a.get('changed', 0)}/{mg_a.get('total', 0)} changed (Qty:{mg_a.get('qtyChanged', 0)} Design:{mg_a.get('designChanged', 0)} Supplier:{mg_a.get('supplierChanged', 0)})\n"
+            f"{b}: {mg_b.get('changed', 0)}/{mg_b.get('total', 0)} changed (Qty:{mg_b.get('qtyChanged', 0)} Design:{mg_b.get('designChanged', 0)} Supplier:{mg_b.get('supplierChanged', 0)})\n\n"
+            f"{'→ ' + a + ' is more impacted.' if mg_a.get('changed', 0) > mg_b.get('changed', 0) else '→ ' + b + ' is more impacted.'}"
+        )
+
+    return f"Could not find both {a} and {b} in the current dataset. Available locations: {', '.join(d.get('locationId', '') for d in dc_summary[:5])}."
+
+
+def _handle_why_not(q: str, ctx: dict, dc_summary: list, mg_summary: list, details: list) -> str:
+    """Handle why-not reasoning — explain absence of risk or change."""
+    risk_summary = ctx.get("riskSummary") or {}
+    drivers = ctx.get("drivers") or {}
+
+    # Extract entity name from question
+    words = q.split()
+    entity = None
+    for w in words:
+        if w.upper() in [d.get("locationId", "").upper() for d in dc_summary]:
+            entity = w.upper()
+            break
+        if w.upper() in [g.get("materialGroup", "").upper() for g in mg_summary]:
+            entity = w.upper()
+            break
+
+    if entity:
+        loc = next((d for d in dc_summary if d.get("locationId", "").upper() == entity), None)
+        mg = next((g for g in mg_summary if g.get("materialGroup", "").upper() == entity), None)
+        if loc:
+            if loc["changed"] == 0:
+                return f"📊 {entity} is stable because no records changed this cycle ({loc['total']} total records, 0 changed). No risk signals detected."
+            pct = round(loc["changed"] / max(loc["total"], 1) * 100, 1)
+            return f"📊 {entity} has {loc['changed']}/{loc['total']} changes ({pct}%). It {'is flagged' if pct > 25 else 'is below the risk threshold because change rate is low'}."
+        if mg:
+            if mg["changed"] == 0:
+                return f"📊 {entity} is stable — no changes detected across {mg['total']} records."
+            return f"📊 {entity} has {mg['changed']}/{mg['total']} changes. Design: {mg.get('designChanged', 0)}, Supplier: {mg.get('supplierChanged', 0)}. {'Low risk because no design/supplier changes.' if mg.get('designChanged', 0) == 0 and mg.get('supplierChanged', 0) == 0 else ''}"
+
+    # Generic why-not
+    if risk_summary.get("highRiskCount", 0) == 0:
+        return "📊 No high-risk records detected this cycle. All changes are within normal parameters."
+    return f"📊 Current risk level is {risk_summary.get('highestRiskLevel', 'Normal')}. {risk_summary.get('highRiskCount', 0)} records are flagged. Entities not mentioned are below risk thresholds."
+
+
+def _handle_traceability(q: str, ctx: dict, details: list) -> str:
+    """Return top contributing records for traceability."""
+    if not details:
+        return "📊 Detail records are not available in the current context. Run daily-refresh to populate."
+
+    # Sort by absolute qty_delta descending
+    sorted_details = sorted(details, key=lambda r: abs(r.get("qtyDelta") or 0), reverse=True)
+    top = sorted_details[:5]
+    lines = []
+    for r in top:
+        delta = r.get("qtyDelta")
+        delta_str = f"{delta:+,.0f}" if delta is not None else "N/A"
+        lines.append(f"  {r.get('locationId', '?')} / {r.get('materialGroup', '?')} / {r.get('materialId', '?')} — Δ{delta_str} [{r.get('changeType', '?')}] [{r.get('riskLevel', '?')}]")
+    return f"📊 Top {len(top)} contributing records (by forecast delta):\n" + "\n".join(lines)
+
+
+def _classify_question(question: str) -> str:
+    """Classify question type for routing and explainability."""
+    q = question.lower()
+    if any(w in q for w in ["compare", " vs ", "versus", "difference between"]): return "comparison"
+    if any(w in q for w in ["why not", "why isn't", "not risky", "not flagged", "not changed", "stable"]): return "why_not"
+    if any(w in q for w in ["top record", "contributing", "impacted material", "show record", "detail"]): return "traceability"
+    if any(w in q for w in ["why", "cause", "reason", "root"]): return "root_cause"
+    if any(w in q for w in ["risk", "high risk", "danger"]): return "risk"
+    if any(w in q for w in ["action", "do next", "recommend", "planner"]): return "action"
+    if any(w in q for w in ["source", "blob", "mock", "refresh", "stale", "provenance"]): return "provenance"
+    return "summary"
+
+
+def _build_explainability(ctx: dict, question: str) -> dict:
+    """Build explainability metadata for the response."""
+    from datetime import datetime, timezone
+    last_refreshed = ctx.get("lastRefreshedAt")
+    freshness_minutes = None
+    is_stale = False
+    if last_refreshed:
+        try:
+            refreshed_dt = datetime.fromisoformat(last_refreshed.replace("Z", "+00:00"))
+            freshness_minutes = round((datetime.now(timezone.utc) - refreshed_dt).total_seconds() / 60, 1)
+            is_stale = freshness_minutes > 1440  # stale if > 24 hours
+        except (ValueError, TypeError):
+            pass
+
+    total = ctx.get("totalRecords", 0)
+    changed = ctx.get("changedRecordCount", 0)
+    data_coverage = round(changed / max(total, 1) * 100, 1)
+
+    # Confidence based on data availability
+    fields_present = sum(1 for k in ["aiInsight", "rootCause", "drivers", "riskSummary", "contributionBreakdown", "kpis"] if ctx.get(k))
+    confidence = min(round(fields_present / 6 * 100), 100)
+
+    return {
+        "confidenceScore": confidence,
+        "dataCoverage": data_coverage,
+        "dataSource": ctx.get("dataMode", "unknown"),
+        "lastRefreshedAt": last_refreshed,
+        "dataFreshnessMinutes": freshness_minutes,
+        "isStale": is_stale,
+        "queryType": _classify_question(question),
+        "fieldsUsed": [k for k in ["aiInsight", "rootCause", "drivers", "riskSummary", "contributionBreakdown", "kpis", "detailRecords"] if ctx.get(k)],
+    }
+
+
+def _build_suggested_actions(question: str, ctx: dict) -> list:
+    """Build actionable suggestions based on question and context."""
+    q = question.lower()
+    actions = []
+    if any(w in q for w in ["risk", "high risk"]):
+        actions.append({"action": "filter_dashboard", "label": "Show high-risk records", "filter": "risk"})
+    if any(w in q for w in ["supplier"]):
+        actions.append({"action": "open_drill_down", "label": "Review supplier details", "type": "supplier"})
+    if any(w in q for w in ["design", "bod"]):
+        actions.append({"action": "open_drill_down", "label": "Show design changes", "type": "material"})
+    if any(w in q for w in ["location", "datacenter"]):
+        actions.append({"action": "open_drill_down", "label": "Drill into location", "type": "location"})
+    if any(w in q for w in ["schedule", "roj", "delay"]):
+        actions.append({"action": "filter_dashboard", "label": "Show delayed ROJ records", "filter": "roj"})
+    if not actions:
+        actions.append({"action": "open_copilot", "label": "Ask a follow-up question"})
+    return actions
+
+
+def _build_follow_ups(question: str, ctx: dict) -> list:
+    """Generate contextual follow-up questions."""
+    q = question.lower()
+    drivers = ctx.get("drivers") or {}
+    follow_ups = []
+    if any(w in q for w in ["health", "critical"]):
+        follow_ups = ["What is driving the risk?", "Which locations are most impacted?", "What actions should be taken?"]
+    elif any(w in q for w in ["change", "driver"]):
+        follow_ups = ["Is this demand-driven or design-driven?", "Show top risk areas", "What should the planner do?"]
+    elif any(w in q for w in ["supplier"]):
+        follow_ups = ["Which materials are affected?", "Is there a schedule delay?", "What is the supplier reliability?"]
+    elif any(w in q for w in ["location"]):
+        follow_ups = ["Which material groups changed here?", "What is the forecast delta?", "Any design changes?"]
+    elif any(w in q for w in ["forecast", "demand"]):
+        follow_ups = ["Is this a spike or a trend?", "Which locations drive the increase?", "What actions are recommended?"]
+    elif any(w in q for w in ["not", "why not", "isn't"]):
+        follow_ups = ["What IS driving changes?", "Show current risk level", "What changed most?"]
+    else:
+        follow_ups = ["What changed most?", "Show KPI summary", "What should the planner do next?"]
+    return follow_ups[:3]
 
 
 def _filter_snapshot(snap: dict, location_id: Optional[str], material_group: Optional[str]) -> dict:
