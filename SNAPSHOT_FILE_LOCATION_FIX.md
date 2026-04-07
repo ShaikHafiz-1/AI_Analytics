@@ -17,19 +17,19 @@ On Windows, this path doesn't exist, so the file gets saved to `/tmp/planning_sn
 
 **Windows Command Prompt**:
 ```bash
-set SNAPSHOT_FILE_PATH=C:\Users\v-syedfar\Downloads\AI_Analytics-feature-local-test-ready\AI_Analytics\planning_intelligence\planning_snapshot.json
+set SNAPSHOT_FILE_PATH=%cd%\planning_snapshot.json
 python run_daily_refresh.py
 ```
 
 **Windows PowerShell**:
 ```powershell
-$env:SNAPSHOT_FILE_PATH="C:\Users\v-syedfar\Downloads\AI_Analytics-feature-local-test-ready\AI_Analytics\planning_intelligence\planning_snapshot.json"
+$env:SNAPSHOT_FILE_PATH="$(Get-Location)\planning_snapshot.json"
 python run_daily_refresh.py
 ```
 
 **macOS/Linux**:
 ```bash
-export SNAPSHOT_FILE_PATH="/path/to/planning_intelligence/planning_snapshot.json"
+export SNAPSHOT_FILE_PATH="$(pwd)/planning_snapshot.json"
 python run_daily_refresh.py
 ```
 
