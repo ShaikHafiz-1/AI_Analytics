@@ -340,3 +340,230 @@ def test_answer_traceability_no_details():
     ctx = {**SAMPLE_CONTEXT, "detailRecords": []}
     answer = _generate_answer_from_context("Show top records", ctx)
     assert isinstance(answer, str)
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility tests for Phase 6 response structure
+# ---------------------------------------------------------------------------
+
+def test_explain_response_backward_compatible_without_new_fields():
+    """Verify that existing clients work without new optional fields."""
+    context = SAMPLE_CONTEXT
+    answer = _generate_answer_from_context("Why is health critical?", context)
+    
+    # Old response structure (without new fields)
+    response = {
+        "question": "Why is health critical?",
+        "answer": answer,
+        "queryType": "health",
+        "answerMode": "summary",
+        "aiInsight": context.get("aiInsight"),
+        "rootCause": context.get("rootCause"),
+        "recommendedActions": context.get("recommendedActions", []),
+        "planningHealth": context.get("planningHealth"),
+        "dataMode": context.get("dataMode", "cached"),
+        "lastRefreshedAt": context.get("lastRefreshedAt"),
+        "supportingMetrics": {
+            "changedRecordCount": context.get("changedRecordCount"),
+            "totalRecords": context.get("totalRecords"),
+            "trendDelta": context.get("trendDelta"),
+            "planningHealth": context.get("planningHealth"),
+        },
+        "contextUsed": [k for k, v in context.items() if v is not None],
+    }
+    
+    # Verify all existing fields are present
+    assert response["question"] == "Why is health critical?"
+    assert response["answer"] is not None
+    assert response["queryType"] == "health"
+    assert response["answerMode"] == "summary"
+    assert response["aiInsight"] is not None
+    assert response["rootCause"] is not None
+    assert response["recommendedActions"] is not None
+    assert response["planningHealth"] == 42
+    assert response["dataMode"] == "cached"
+    assert response["lastRefreshedAt"] is not None
+    assert response["supportingMetrics"]["changedRecordCount"] == 87
+    assert response["supportingMetrics"]["totalRecords"] == 200
+
+
+def test_explain_response_with_new_optional_fields():
+    """Verify that new optional fields can be added without breaking existing clients."""
+    context = SAMPLE_CONTEXT
+    answer = _generate_answer_from_context("Why is health critical?", context)
+    
+    # New response structure (with optional fields)
+    response = {
+        "question": "Why is health critical?",
+        "answer": answer,
+        "queryType": "health",
+        "answerMode": "summary",
+        "scopeType": None,  # NEW
+        "scopeValue": None,  # NEW
+        "aiInsight": context.get("aiInsight"),
+        "rootCause": context.get("rootCause"),
+        "recommendedActions": context.get("recommendedActions", []),
+        "planningHealth": context.get("planningHealth"),
+        "dataMode": context.get("dataMode", "cached"),
+        "lastRefreshedAt": context.get("lastRefreshedAt"),
+        "supportingMetrics": {
+            "changedRecordCount": context.get("changedRecordCount"),
+            "totalRecords": context.get("totalRecords"),
+            "trendDelta": context.get("trendDelta"),
+            "planningHealth": context.get("planningHealth"),
+        },
+        "contextUsed": [k for k, v in context.items() if v is not None],
+        # Optional fields (only present for specific query types)
+        # "comparisonMetrics": {...},  # Only for comparison queries
+        # "supplierMetrics": {...},    # Only for supplier queries
+        # "recordComparison": {...},   # Only for record detail queries
+    }
+    
+    # Verify all existing fields are still present
+    assert response["question"] == "Why is health critical?"
+    assert response["answer"] is not None
+    assert response["queryType"] == "health"
+    assert response["answerMode"] == "summary"
+    assert response["aiInsight"] is not None
+    assert response["rootCause"] is not None
+    assert response["recommendedActions"] is not None
+    assert response["planningHealth"] == 42
+    
+    # Verify new fields are present (even if None)
+    assert "scopeType" in response
+    assert "scopeValue" in response
+
+
+def test_explain_response_comparison_metrics_optional():
+    """Verify that comparisonMetrics is only present for comparison queries."""
+    context = SAMPLE_CONTEXT
+    
+    # For non-comparison query, comparisonMetrics should not be present
+    response_health = {
+        "question": "Why is health critical?",
+        "queryType": "health",
+        "answerMode": "summary",
+    }
+    assert "comparisonMetrics" not in response_health
+    
+    # For comparison query, comparisonMetrics should be present
+    response_comparison = {
+        "question": "Compare LOC001 vs LOC002",
+        "queryType": "comparison",
+        "answerMode": "investigate",
+        "comparisonMetrics": {
+            "entity1": "LOC001",
+            "entity2": "LOC002",
+            "metrics": {}
+        }
+    }
+    assert "comparisonMetrics" in response_comparison
+
+
+def test_explain_response_supplier_metrics_optional():
+    """Verify that supplierMetrics is only present for supplier queries."""
+    # For non-supplier query, supplierMetrics should not be present
+    response_health = {
+        "question": "Why is health critical?",
+        "queryType": "health",
+    }
+    assert "supplierMetrics" not in response_health
+    
+    # For supplier query, supplierMetrics should be present
+    response_supplier = {
+        "question": "List suppliers for LOC001",
+        "queryType": "supplier_by_location",
+        "supplierMetrics": {
+            "location": "LOC001",
+            "suppliers": []
+        }
+    }
+    assert "supplierMetrics" in response_supplier
+
+
+def test_explain_response_record_comparison_optional():
+    """Verify that recordComparison is only present for record detail queries."""
+    # For non-record query, recordComparison should not be present
+    response_health = {
+        "question": "Why is health critical?",
+        "queryType": "health",
+    }
+    assert "recordComparison" not in response_health
+    
+    # For record detail query, recordComparison should be present
+    response_record = {
+        "question": "What changed for MAT-100?",
+        "queryType": "record_detail",
+        "recordComparison": {
+            "materialId": "MAT-100",
+            "locationId": "LOC001",
+            "current": {},
+            "previous": {},
+            "changes": {},
+            "riskLevel": "Normal"
+        }
+    }
+    assert "recordComparison" in response_record
+
+
+def test_supporting_metrics_always_present():
+    """Verify that supportingMetrics is always present in response."""
+    context = SAMPLE_CONTEXT
+    
+    # For any query type, supportingMetrics should be present
+    response = {
+        "supportingMetrics": {
+            "changedRecordCount": context.get("changedRecordCount"),
+            "totalRecords": context.get("totalRecords"),
+            "trendDelta": context.get("trendDelta"),
+            "planningHealth": context.get("planningHealth"),
+        }
+    }
+    
+    assert "supportingMetrics" in response
+    assert response["supportingMetrics"]["changedRecordCount"] == 87
+    assert response["supportingMetrics"]["totalRecords"] == 200
+    assert response["supportingMetrics"]["trendDelta"] == 3000
+    assert response["supportingMetrics"]["planningHealth"] == 42
+
+
+def test_answer_mode_summary_vs_investigate():
+    """Verify that answerMode is correctly set based on query type."""
+    # Summary mode for global queries
+    response_summary = {
+        "queryType": "health",
+        "answerMode": "summary",
+    }
+    assert response_summary["answerMode"] == "summary"
+    
+    # Investigate mode for scoped queries
+    response_investigate = {
+        "queryType": "root_cause",
+        "answerMode": "investigate",
+        "scopeType": "location",
+        "scopeValue": "LOC001",
+    }
+    assert response_investigate["answerMode"] == "investigate"
+    assert response_investigate["scopeType"] == "location"
+    assert response_investigate["scopeValue"] == "LOC001"
+
+
+def test_scope_type_and_value_optional():
+    """Verify that scopeType and scopeValue are optional fields."""
+    # For global queries, scopeType and scopeValue can be None
+    response_global = {
+        "queryType": "health",
+        "scopeType": None,
+        "scopeValue": None,
+    }
+    assert response_global["scopeType"] is None
+    assert response_global["scopeValue"] is None
+    
+    # For scoped queries, scopeType and scopeValue should be set
+    response_scoped = {
+        "queryType": "root_cause",
+        "scopeType": "location",
+        "scopeValue": "LOC001",
+    }
+    assert response_scoped["scopeType"] == "location"
+    assert response_scoped["scopeValue"] == "LOC001"

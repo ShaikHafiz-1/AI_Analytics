@@ -400,15 +400,49 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
       clearTimeout(timeoutId);
       const answer = res.answer || res.aiInsight || buildFallbackAnswer(question, context, selectedEntity);
       const followUps = (res as any).followUpQuestions || buildFollowUps(question, context, selectedEntity);
-      // Add explainability note if stale
+      
+      // Build comprehensive response with new fields
       let finalAnswer = answer;
+      
+      // Add supporting metrics if available
+      const supportingMetrics = (res as any).supportingMetrics;
+      if (supportingMetrics && answer) {
+        finalAnswer = `${answer}\n\n📊 Supporting Metrics:\n• Changed: ${supportingMetrics.changedRecordCount}/${supportingMetrics.totalRecords}\n• Trend: ${supportingMetrics.trendDelta >= 0 ? "+" : ""}${supportingMetrics.trendDelta?.toLocaleString()}\n• Health: ${supportingMetrics.planningHealth}/100`;
+      }
+      
+      // Add comparison metrics if available
+      const comparisonMetrics = (res as any).comparisonMetrics;
+      if (comparisonMetrics && comparisonMetrics.metrics) {
+        finalAnswer += `\n\n📊 Comparison:\n${JSON.stringify(comparisonMetrics, null, 2)}`;
+      }
+      
+      // Add supplier metrics if available
+      const supplierMetrics = (res as any).supplierMetrics;
+      if (supplierMetrics && supplierMetrics.suppliers) {
+        finalAnswer += `\n\n🏭 Suppliers at ${supplierMetrics.location}:\n`;
+        supplierMetrics.suppliers.forEach((s: any) => {
+          finalAnswer += `• ${s.supplier}: ${s.affectedRecords} records, Forecast: ${s.forecastImpact >= 0 ? "+" : ""}${s.forecastImpact}, Design changes: ${s.designChanges}\n`;
+        });
+      }
+      
+      // Add record comparison if available
+      const recordComparison = (res as any).recordComparison;
+      if (recordComparison && recordComparison.materialId) {
+        finalAnswer += `\n\n📋 Record Comparison: ${recordComparison.materialId}\n`;
+        finalAnswer += `Current: Forecast ${recordComparison.current.forecast}, ROJ ${recordComparison.current.roj}\n`;
+        finalAnswer += `Previous: Forecast ${recordComparison.previous.forecast}, ROJ ${recordComparison.previous.roj}\n`;
+        finalAnswer += `Changes: Forecast ${recordComparison.changes.forecastDelta >= 0 ? "+" : ""}${recordComparison.changes.forecastDelta}`;
+      }
+      
+      // Add explainability note if stale
       const expl = (res as any).explainability;
       if (expl?.isStale) {
-        finalAnswer = `⚠️ Data is ${Math.round(expl.dataFreshnessMinutes / 60)}h old. Consider refreshing.\n\n${answer}`;
+        finalAnswer = `⚠️ Data is ${Math.round(expl.dataFreshnessMinutes / 60)}h old. Consider refreshing.\n\n${finalAnswer}`;
       }
       if (expl?.confidenceScore && expl.confidenceScore < 50) {
         finalAnswer += `\n\n⚠️ Confidence: ${expl.confidenceScore}% — limited data available.`;
       }
+      
       setMessages((prev) => [...prev, { role: "assistant", content: finalAnswer, timestamp: Date.now(), followUps }]);
     } catch {
       clearTimeout(timeoutId);
@@ -460,12 +494,12 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
                 {msg.content}
               </div>
             </div>
-            {/* Follow-up suggestions */}
+            {/* Follow-up suggestions - one at a time */}
             {msg.role === "assistant" && msg.followUps && msg.followUps.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 ml-1">
-                {msg.followUps.map((fu, j) => (
+              <div className="flex flex-col gap-1.5 mt-2 ml-1">
+                {msg.followUps.slice(0, 1).map((fu, j) => (
                   <button key={j} onClick={() => sendMessage(fu)}
-                    className="text-[10px] px-2 py-0.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-blue-400 hover:border-blue-500/30 transition">
+                    className="text-[10px] px-2 py-0.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-blue-400 hover:border-blue-500/30 transition text-left">
                     {fu}
                   </button>
                 ))}

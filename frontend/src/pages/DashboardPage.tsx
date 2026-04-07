@@ -43,6 +43,8 @@ function buildDashboardContext(data: DashboardResponse): DashboardContext {
     datacenterCount: data.datacenterCount ?? 0,
     materialGroups: data.materialGroups ?? [],
     highRiskRecordCount: data.riskSummary?.highRiskCount ?? 0,
+    // Detail records for supplier queries and analysis
+    detailRecords: data.detailRecords ?? [],
   };
 }
 

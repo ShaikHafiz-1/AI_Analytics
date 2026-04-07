@@ -30,6 +30,111 @@ from snapshot_store import load_snapshot, snapshot_exists, get_last_updated_time
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 
+# ============================================================================
+# DATA NORMALIZATION UTILITY
+# ============================================================================
+# Normalizes detailRecords from various formats to a consistent dict format
+# that works with both .get() and getattr() access patterns
+
+def _normalize_detail_records(records: list) -> list:
+    """
+    Normalize detailRecords to consistent format.
+    
+    Handles:
+    - Raw CSV dicts with field names like LOCID, LOCFR, GSCFSCTQTY
+    - ComparedRecord objects with attributes like location_id, supplier
+    - Already-normalized dicts with keys like locationId, supplier
+    
+    Returns list of dicts with normalized keys:
+    - locationId (from LOCID or location_id)
+    - materialGroup (from GSCEQUIPCAT or material_group)
+    - materialId (from PRDID or material_id)
+    - supplier (from LOCFR or supplier_current)
+    - forecastQty (from GSCFSCTQTY or forecast_qty_current)
+    - roj (from GSCCONROJDATE or roj_current)
+    - changed (from various change flags)
+    - qtyChanged, supplierChanged, designChanged, scheduleChanged
+    - qtyDelta, riskLevel, changeType
+    """
+    if not records:
+        return []
+    
+    normalized = []
+    for r in records:
+        if isinstance(r, dict):
+            # Already a dict - normalize keys
+            norm = {
+                # Location/Material/Supplier keys
+                "locationId": r.get("locationId") or r.get("LOCID") or r.get("location_id") or "",
+                "materialGroup": r.get("materialGroup") or r.get("GSCEQUIPCAT") or r.get("material_group") or "",
+                "materialId": r.get("materialId") or r.get("PRDID") or r.get("material_id") or "",
+                "supplier": r.get("supplier") or r.get("LOCFR") or r.get("supplier_current") or "",
+                
+                # Forecast/ROJ/BOD/FF
+                "forecastQty": r.get("forecastQty") or r.get("GSCFSCTQTY") or r.get("forecast_qty_current"),
+                "roj": r.get("roj") or r.get("GSCCONROJDATE") or r.get("roj_current"),
+                "bod": r.get("bod") or r.get("ZCOIBODVER") or r.get("bod_current"),
+                "formFactor": r.get("formFactor") or r.get("ZCOIFORMFACT") or r.get("ff_current"),
+                
+                # Change flags
+                "changed": r.get("changed") or any([
+                    r.get("qtyChanged"), r.get("qty_changed"),
+                    r.get("supplierChanged"), r.get("supplier_changed"),
+                    r.get("designChanged"), r.get("design_changed"),
+                    r.get("scheduleChanged"), r.get("roj_changed"),
+                ]),
+                "qtyChanged": r.get("qtyChanged") or r.get("qty_changed") or False,
+                "supplierChanged": r.get("supplierChanged") or r.get("supplier_changed") or False,
+                "designChanged": r.get("designChanged") or r.get("design_changed") or False,
+                "scheduleChanged": r.get("scheduleChanged") or r.get("roj_changed") or False,
+                
+                # Deltas and metrics
+                "qtyDelta": r.get("qtyDelta") or r.get("qty_delta") or r.get("FCST_Delta Qty") or 0,
+                "riskLevel": r.get("riskLevel") or r.get("risk_level") or "Normal",
+                "changeType": r.get("changeType") or r.get("change_type") or "Unchanged",
+                
+                # Context fields
+                "dcSite": r.get("dcSite") or r.get("ZCOIDCID") or r.get("dc_site"),
+                "metro": r.get("metro") or r.get("ZCOIMETROID"),
+                "country": r.get("country") or r.get("ZCOICOUNTRY"),
+                "supplierDate": r.get("supplierDate") or r.get("GSCSUPLDATE") or r.get("supplier_date"),
+                "isSupplierDateMissing": r.get("isSupplierDateMissing") or r.get("Is_SupplierDateMissing") or False,
+            }
+            normalized.append(norm)
+        else:
+            # ComparedRecord or similar object - convert to dict
+            try:
+                norm = {
+                    "locationId": getattr(r, "location_id", "") or "",
+                    "materialGroup": getattr(r, "material_group", "") or "",
+                    "materialId": getattr(r, "material_id", "") or "",
+                    "supplier": getattr(r, "supplier_current", "") or getattr(r, "supplier", "") or "",
+                    "forecastQty": getattr(r, "forecast_qty_current", None),
+                    "roj": getattr(r, "roj_current", None),
+                    "bod": getattr(r, "bod_current", None),
+                    "formFactor": getattr(r, "ff_current", None),
+                    "changed": getattr(r, "qty_changed", False) or getattr(r, "supplier_changed", False) or getattr(r, "design_changed", False) or getattr(r, "roj_changed", False),
+                    "qtyChanged": getattr(r, "qty_changed", False),
+                    "supplierChanged": getattr(r, "supplier_changed", False),
+                    "designChanged": getattr(r, "design_changed", False),
+                    "scheduleChanged": getattr(r, "roj_changed", False),
+                    "qtyDelta": getattr(r, "qty_delta", 0) or 0,
+                    "riskLevel": getattr(r, "risk_level", "Normal") or "Normal",
+                    "changeType": getattr(r, "change_type", "Unchanged") or "Unchanged",
+                    "dcSite": getattr(r, "dc_site", None),
+                    "metro": getattr(r, "metro", None),
+                    "country": getattr(r, "country", None),
+                    "supplierDate": getattr(r, "supplier_date", None),
+                    "isSupplierDateMissing": getattr(r, "is_supplier_date_missing", False),
+                }
+                normalized.append(norm)
+            except Exception as e:
+                logging.warning(f"Failed to normalize record: {e}. Skipping.")
+                continue
+    
+    return normalized
+
+
 @app.route(route="planning-intelligence", methods=["POST"])
 def planning_intelligence(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Planning Intelligence function triggered.")
@@ -270,12 +375,759 @@ def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _extract_scope(question: str) -> tuple:
+    """
+    Extract scope from question. Enhanced for comparison queries and material IDs.
+    
+    Returns: (scope_type, scope_value) or (scope_type, [scope_value1, scope_value2]) for comparisons
+    
+    scope_type: "location" | "supplier" | "material_group" | "material_id" | "risk_type" | None
+    scope_value: extracted entity name or ID (or list for comparisons)
+    """
+    import re
+    q = question.lower()
+    
+    # Check for comparison patterns first (e.g., "LOC001 vs LOC002")
+    # Enhanced to match location IDs like CMH02_F01C01, AVC11_F01C01, etc.
+    comparison_patterns = [
+        r'(LOC\d+|location\s+[\w\-]+|[A-Z]+\d+_[A-Z0-9]+)\s+(?:vs|versus|compared?\s+to)\s+(LOC\d+|location\s+[\w\-]+|[A-Z]+\d+_[A-Z0-9]+)',
+        r'(PUMP|VALVE|[\w\s]+)\s+(?:vs|versus|compared?\s+to)\s+(PUMP|VALVE|[\w\s]+)',
+        r'(MAT\d+|material\s+[\w\-]+|C\d{8}-\d{3})\s+(?:vs|versus|compared?\s+to)\s+(MAT\d+|material\s+[\w\-]+|C\d{8}-\d{3})',
+    ]
+    
+    for pattern in comparison_patterns:
+        match = re.search(pattern, q, re.IGNORECASE)
+        if match:
+            entity1 = match.group(1).upper()
+            entity2 = match.group(2).upper()
+            # Determine scope type from entities
+            if 'LOC' in entity1 or 'LOCATION' in entity1 or '_' in entity1:
+                return ("location", [entity1, entity2])
+            elif 'MAT' in entity1 or 'MATERIAL' in entity1 or 'C' in entity1[:1]:
+                return ("material_id", [entity1, entity2])
+            else:
+                return ("material_group", [entity1, entity2])
+    
+    # Material ID patterns - FIRST (before location) to catch C00000560-001 format
+    mat_match = re.search(r'\b(C\d{8}-\d{3}|material\s+([\w\-]+)|MAT[\w\-]*)\b', q, re.IGNORECASE)
+    if mat_match:
+        material = mat_match.group(1).upper() if mat_match.lastindex == 1 else (mat_match.group(2).upper() if mat_match.lastindex and mat_match.group(2) else mat_match.group(0).upper())
+        if material and material not in ['MATERIAL']:
+            return ("material_id", material)
+    
+    # Location patterns - enhanced to match various formats like LOC001, AVC11_F01C01, CMH02_F01C01, etc.
+    # Matches: LOC001, location LOC001, location AVC11_F01C01, at AVC11_F01C01, etc.
+    loc_patterns = [
+        r'\blocation\s+([\w\-]+)',  # "location AVC11_F01C01"
+        r'\bat\s+([\w\-]+)',         # "at AVC11_F01C01"
+        r'\b(LOC\d+|[A-Z]+\d+_[A-Z0-9]+)\b',  # "LOC001" or "AVC11_F01C01" or "CMH02_F01C01"
+    ]
+    
+    for pattern in loc_patterns:
+        loc_match = re.search(pattern, q, re.IGNORECASE)
+        if loc_match:
+            location = loc_match.group(1).upper() if loc_match.lastindex else loc_match.group(0).upper()
+            # Verify it looks like a location ID (not a common word)
+            if location not in ['FOR', 'THE', 'AND', 'OR', 'AT', 'IN', 'TO', 'FROM']:
+                return ("location", location)
+    
+    # Supplier patterns
+    sup_match = re.search(r'\b(supplier\s+([\w\-]+)|SUP[\w\-]*)\b', q, re.IGNORECASE)
+    if sup_match:
+        supplier = sup_match.group(1).upper() if sup_match.lastindex and sup_match.group(2) else sup_match.group(0).upper()
+        return ("supplier", supplier)
+    
+    # Material group patterns (equipment categories like UPS, MVSXRM, etc.)
+    mg_match = re.search(r'\b(material\s+group\s+([\w\-]+)|category\s+([\w\-]+)|in\s+([\w\-]+)|PUMP|VALVE|UPS|MVSXRM|LVS|EPMS|ATS|BAS|GEN|BUS|MVS|AHU|HAC|ACC|CRAH|CDU|AHF|TCP|PDU|CT|EHOUSE|WCC)\b', q, re.IGNORECASE)
+    if mg_match:
+        mg = mg_match.group(1).upper() if mg_match.lastindex == 1 else (mg_match.group(2).upper() if mg_match.lastindex and mg_match.group(2) else (mg_match.group(3).upper() if mg_match.lastindex and mg_match.group(3) else (mg_match.group(4).upper() if mg_match.lastindex and mg_match.group(4) else mg_match.group(0).upper())))
+        if mg and mg not in ['MATERIAL', 'GROUP', 'CATEGORY', 'IN']:
+            return ("material_group", mg)
+    
+    # Risk type patterns
+    if any(w in q for w in ["high risk", "low risk", "critical", "normal"]):
+        return ("risk_type", None)
+    
+    return (None, None)
+
+
+def _determine_answer_mode(query_type: str, scope_type: str) -> str:
+    """
+    Determine if Summary or Investigate mode. Enhanced for comparison and supplier queries.
+    
+    Returns: "summary" | "investigate"
+    """
+    # Always investigate for these query types
+    if query_type in ["comparison", "traceability", "supplier_by_location", "record_detail", "design_filter"]:
+        return "investigate"
+    
+    # Investigate if scoped
+    if query_type in ["root_cause", "why_not"] and scope_type:
+        return "investigate"
+    
+    # Investigate if scoped and not summary/provenance
+    if scope_type and query_type not in ["summary", "provenance"]:
+        return "investigate"
+    
+    return "summary"
+
+
+def _compute_scoped_metrics(detail_records: list, scope_type: str, scope_value: str) -> dict:
+    """
+    Filter detailRecords to scope and recompute metrics.
+    
+    Returns: {
+        "filteredRecordsCount": int,
+        "scopedContributionBreakdown": {...},
+        "scopedDrivers": {...},
+        "topContributingRecords": [...],
+        "scopedMetrics": {...}
+    }
+    """
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Filter records to scope
+    if scope_type == "location":
+        filtered = [r for r in detail_records if (r.get("locationId") or "").upper() == (scope_value or "").upper()]
+    elif scope_type == "supplier":
+        filtered = [r for r in detail_records if (r.get("supplier") or "").upper() == (scope_value or "").upper()]
+    elif scope_type == "material_group":
+        filtered = [r for r in detail_records if (r.get("materialGroup") or "").upper() == (scope_value or "").upper()]
+    elif scope_type == "material_id":
+        filtered = [r for r in detail_records if (r.get("materialId") or "").upper() == (scope_value or "").upper()]
+    elif scope_type == "risk_type":
+        filtered = [r for r in detail_records if r.get("riskLevel") == scope_value]
+    else:
+        filtered = detail_records
+    
+    # Recompute metrics
+    changed_count = sum(1 for r in filtered if r.get("changed"))
+    total_count = len(filtered)
+    change_rate = round(changed_count / max(total_count, 1) * 100, 1)
+    
+    # Contribution breakdown
+    qty_changed = sum(1 for r in filtered if r.get("qtyChanged"))
+    supplier_changed = sum(1 for r in filtered if r.get("supplierChanged"))
+    design_changed = sum(1 for r in filtered if r.get("designChanged"))
+    schedule_changed = sum(1 for r in filtered if r.get("scheduleChanged"))
+    
+    contribution = {
+        "quantity": round(qty_changed / max(changed_count, 1) * 100, 1) if changed_count > 0 else 0,
+        "supplier": round(supplier_changed / max(changed_count, 1) * 100, 1) if changed_count > 0 else 0,
+        "design": round(design_changed / max(changed_count, 1) * 100, 1) if changed_count > 0 else 0,
+        "schedule": round(schedule_changed / max(changed_count, 1) * 100, 1) if changed_count > 0 else 0,
+    }
+    
+    # Top drivers
+    drivers = {
+        "primary": max(
+            [("quantity", qty_changed), ("supplier", supplier_changed), 
+             ("design", design_changed), ("schedule", schedule_changed)],
+            key=lambda x: x[1]
+        )[0] if changed_count > 0 else "none",
+        "changedCount": changed_count,
+        "totalCount": total_count,
+    }
+    
+    # Top contributing records
+    top_records = sorted(
+        filtered,
+        key=lambda r: abs(r.get("qtyDelta", 0)),
+        reverse=True
+    )[:5]
+    
+    return {
+        "filteredRecordsCount": total_count,
+        "scopedContributionBreakdown": contribution,
+        "scopedDrivers": drivers,
+        "topContributingRecords": top_records,
+        "scopedMetrics": {
+            "changedCount": changed_count,
+            "changeRate": change_rate,
+            "totalRecords": total_count,
+        }
+    }
+
+
+def _generate_comparison_answer(question: str, ctx: dict) -> str:
+    """Generate comparison answer with side-by-side metrics."""
+    import re
+    
+    # Extract two entities
+    entities = re.findall(r'\b(LOC\d+|SUP\d+|MAT\d+)\b', question, re.IGNORECASE)
+    if len(entities) < 2:
+        return "Could not extract two entities to compare."
+    
+    entity_a, entity_b = entities[0].upper(), entities[1].upper()
+    detail_records = ctx.get("detailRecords", [])
+    
+    # Determine scope type
+    if entity_a.startswith("LOC"):
+        scope_type = "location"
+    elif entity_a.startswith("SUP"):
+        scope_type = "supplier"
+    else:
+        scope_type = "material_id"
+    
+    # Compute metrics for each
+    metrics_a = _compute_scoped_metrics(detail_records, scope_type, entity_a)
+    metrics_b = _compute_scoped_metrics(detail_records, scope_type, entity_b)
+    
+    # Format comparison
+    return (
+        f"📊 Comparison: {entity_a} vs {entity_b}\n\n"
+        f"{entity_a}: {metrics_a['scopedMetrics']['changedCount']}/{metrics_a['filteredRecordsCount']} changed "
+        f"({metrics_a['scopedMetrics']['changeRate']}%). "
+        f"Primary driver: {metrics_a['scopedDrivers']['primary']}\n"
+        f"{entity_b}: {metrics_b['scopedMetrics']['changedCount']}/{metrics_b['filteredRecordsCount']} changed "
+        f"({metrics_b['scopedMetrics']['changeRate']}%). "
+        f"Primary driver: {metrics_b['scopedDrivers']['primary']}\n\n"
+        f"→ {entity_a if metrics_a['scopedMetrics']['changedCount'] > metrics_b['scopedMetrics']['changedCount'] else entity_b} "
+        f"has more changes."
+    )
+
+
+def _generate_root_cause_answer(question: str, ctx: dict, scope_type: str, scope_value: str, scoped_metrics: dict) -> str:
+    """Generate root cause answer for specific entity.
+    
+    Task 19: Enhanced answer formatting for root cause queries - what changed, why risky, action.
+    Task 20: Ask for clarification when scope is missing.
+    """
+    # Handle queries without scope (e.g., "Why is planning health critical?")
+    if not scope_value:
+        return (
+            "To analyze why planning health is critical, I need more context:\n\n"
+            "Please specify:\n"
+            "  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+            "  • Or Equipment Category (e.g., UPS, MVSXRM)\n"
+            "  • Or ask: 'Why is planning health at 37/100?'\n\n"
+            "💡 Examples:\n"
+            "  • 'Why is CYS20_F01C01 risky?'\n"
+            "  • 'Why is UPS category critical?'\n"
+            "  • 'What is driving the risk?'"
+        )
+    
+    metrics = scoped_metrics or _compute_scoped_metrics(
+        ctx.get("detailRecords", []), scope_type, scope_value
+    )
+    
+    what_changed = metrics['scopedDrivers']['primary']
+    change_rate = metrics['scopedMetrics']['changeRate']
+    changed_count = metrics['scopedMetrics']['changedCount']
+    total_count = metrics['filteredRecordsCount']
+    actions = ctx.get("recommendedActions", ["Monitor situation"])
+    action = actions[0] if actions else "Monitor situation"
+    
+    # Enhanced formatting (Task 19)
+    lines = [f"📊 Root Cause Analysis: {scope_value}\n"]
+    lines.append(f"What changed:")
+    lines.append(f"  • Primary driver: {what_changed}")
+    lines.append(f"  • Records affected: {changed_count}/{total_count} ({change_rate:.1f}%)\n")
+    lines.append(f"Why it's risky:")
+    lines.append(f"  • High change rate ({change_rate:.1f}%) indicates instability")
+    lines.append(f"  • {changed_count} records changed in this cycle\n")
+    lines.append(f"Recommended action:")
+    lines.append(f"  • {action}")
+    
+    return "\n".join(lines)
+
+
+def _generate_why_not_answer(question: str, ctx: dict, scope_type: str, scope_value: str, scoped_metrics: dict) -> str:
+    """Generate why-not answer for stable entity.
+    
+    Task 19: Enhanced answer formatting for why-not queries - stability explanation.
+    """
+    if not scope_value:
+        return "Could not identify specific entity in question."
+    
+    metrics = scoped_metrics or _compute_scoped_metrics(
+        ctx.get("detailRecords", []), scope_type, scope_value
+    )
+    
+    changed_count = metrics['scopedMetrics']['changedCount']
+    total_count = metrics['filteredRecordsCount']
+    change_rate = metrics['scopedMetrics']['changeRate']
+    
+    # Enhanced formatting (Task 19)
+    lines = [f"📊 Stability Analysis: {scope_value}\n"]
+    
+    if changed_count == 0:
+        lines.append(f"Status: Stable")
+        lines.append(f"  • No records changed this cycle")
+        lines.append(f"  • All {total_count} records remain unchanged\n")
+        lines.append(f"Why it's not risky:")
+        lines.append(f"  • Zero change rate indicates complete stability")
+        lines.append(f"  • No new risks introduced")
+    else:
+        lines.append(f"Status: {'Stable' if change_rate < 10 else 'Moderate' if change_rate < 25 else 'Active'}")
+        lines.append(f"  • {changed_count}/{total_count} records changed ({change_rate:.1f}%)\n")
+        lines.append(f"Why it's {'not risky' if change_rate < 10 else 'below risk threshold'}:")
+        if change_rate < 10:
+            lines.append(f"  • Low change rate ({change_rate:.1f}%) is within normal parameters")
+        else:
+            lines.append(f"  • Change rate ({change_rate:.1f}%) is below the risk threshold")
+        lines.append(f"  • Situation is under control")
+    
+    return "\n".join(lines)
+
+
+def _generate_traceability_answer(question: str, ctx: dict, scoped_metrics: dict) -> str:
+    """Generate traceability answer with top contributing records.
+    
+    Task 19: Enhanced answer formatting for traceability queries - top contributing records.
+    """
+    records = scoped_metrics.get("topContributingRecords", []) if scoped_metrics else []
+    if not records:
+        return "No contributing records found."
+    
+    lines = [f"📊 Top {len(records)} Contributing Records (by forecast delta):\n"]
+    lines.append(f"{'Location':<12} {'Material Group':<18} {'Material ID':<12} {'Δ Qty':<12} {'Type':<15} {'Risk':<10}")
+    lines.append("-" * 80)
+    
+    for r in records:
+        delta = r.get("qtyDelta", 0)
+        delta_str = f"{delta:+,.0f}"
+        loc = r.get('locationId', '?')[:11]
+        mg = r.get('materialGroup', '?')[:17]
+        mid = r.get('materialId', '?')[:11]
+        ctype = r.get('changeType', '?')[:14]
+        risk = r.get('riskLevel', '?')[:9]
+        lines.append(f"{loc:<12} {mg:<18} {mid:<12} {delta_str:<12} {ctype:<15} {risk:<10}")
+    
+    return "\n".join(lines)
+
+def _generate_comparison_answer(question: str, ctx: dict, scope_type: str, scope_values: list) -> str:
+    """Generate comparison answer with side-by-side metrics for two entities.
+    
+    Task 19: Enhanced answer formatting for comparison queries - side-by-side metrics.
+    """
+    if not isinstance(scope_values, list) or len(scope_values) < 2:
+        return "Could not extract two entities to compare. Please specify both entities clearly."
+    
+    entity1, entity2 = scope_values[0], scope_values[1]
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Filter records for each entity
+    def filter_by_entity(records, entity, scope_type):
+        if scope_type == "location":
+            return [r for r in records if (r.get("locationId", "") or "").upper() == (entity or "").upper()]
+        elif scope_type == "material_group":
+            return [r for r in records if (r.get("materialGroup", "") or "").upper() == (entity or "").upper()]
+        elif scope_type == "material_id":
+            return [r for r in records if (r.get("materialId", "") or "").upper() == (entity or "").upper()]
+        return []
+    
+    records1 = filter_by_entity(detail_records, entity1, scope_type)
+    records2 = filter_by_entity(detail_records, entity2, scope_type)
+    
+    # Compute metrics for each
+    def compute_metrics(records):
+        changed = sum(1 for r in records if r.get("changed"))
+        total = len(records)
+        change_rate = (changed / total * 100) if total > 0 else 0
+        forecast_delta = sum(r.get("qtyDelta", 0) for r in records)
+        design_changes = sum(1 for r in records if "design" in str(r.get("changeType", "")).lower())
+        supplier_changes = sum(1 for r in records if "supplier" in str(r.get("changeType", "")).lower())
+        risk_count = sum(1 for r in records if r.get("riskLevel") in ["High", "Critical"])
+        
+        return {
+            "total": total,
+            "changed": changed,
+            "change_rate": change_rate,
+            "forecast_delta": forecast_delta,
+            "design_changes": design_changes,
+            "supplier_changes": supplier_changes,
+            "risk_count": risk_count,
+        }
+    
+    metrics1 = compute_metrics(records1)
+    metrics2 = compute_metrics(records2)
+    
+    # Format side-by-side comparison (Task 19)
+    lines = [f"📊 Comparison: {entity1} vs {entity2}\n"]
+    lines.append(f"{'Metric':<25} {'':>1} {entity1:<15} {'':>1} {entity2:<15}")
+    lines.append("-" * 60)
+    lines.append(f"{'Total records':<25} {'':>1} {metrics1['total']:<15} {'':>1} {metrics2['total']:<15}")
+    lines.append(f"{'Changed':<25} {'':>1} {metrics1['changed']} ({metrics1['change_rate']:.1f}%){'':<5} {metrics2['changed']} ({metrics2['change_rate']:.1f}%)")
+    lines.append(f"{'Forecast delta':<25} {'':>1} {metrics1['forecast_delta']:+,.0f}{'':<10} {metrics2['forecast_delta']:+,.0f}")
+    lines.append(f"{'Design changes':<25} {'':>1} {metrics1['design_changes']:<15} {'':>1} {metrics2['design_changes']:<15}")
+    lines.append(f"{'Supplier changes':<25} {'':>1} {metrics1['supplier_changes']:<15} {'':>1} {metrics2['supplier_changes']:<15}")
+    lines.append(f"{'Risk count':<25} {'':>1} {metrics1['risk_count']:<15} {'':>1} {metrics2['risk_count']:<15}")
+    lines.append("")
+    
+    # Comparison conclusion
+    if metrics1['changed'] > metrics2['changed']:
+        lines.append(f"→ {entity1} has more changes ({metrics1['changed']} vs {metrics2['changed']})")
+    elif metrics2['changed'] > metrics1['changed']:
+        lines.append(f"→ {entity2} has more changes ({metrics2['changed']} vs {metrics1['changed']})")
+    else:
+        lines.append(f"→ Both have similar change counts ({metrics1['changed']} records)")
+    
+    return "\n".join(lines)
+
+def _generate_supplier_by_location_answer(question: str, ctx: dict, scope_type: str, scope_value: str, detail_level: str = "summary") -> str:
+    """Generate supplier listing and analysis for a location.
+    
+    Task 19: Enhanced answer formatting for supplier queries - supplier list with metrics.
+    Task 20: Ask for clarification when location is missing.
+    
+    detail_level: "summary" (basic), "detailed" (with metrics), "full" (all details)
+    """
+    if scope_type != "location":
+        return (
+            "To analyze suppliers, I need more context:\n\n"
+            "Please specify:\n"
+            "  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+            "  • Or ask: 'List suppliers for [location]'\n\n"
+            "💡 Examples:\n"
+            "  • 'List suppliers for CYS20_F01C01'\n"
+            "  • 'Which suppliers at CYS20_F01C01 have design changes?'\n"
+            "  • 'Which locations have the most changes?'"
+        )
+    
+    location = scope_value
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Import helper functions from response_builder
+    from response_builder import get_suppliers_for_location, compute_supplier_metrics, analyze_supplier_behavior
+    
+    # Get suppliers for this location
+    suppliers = get_suppliers_for_location(detail_records, location)
+    
+    if not suppliers:
+        return f"No supplier information found for location {location}."
+    
+    # Compute metrics for each supplier (Task 19)
+    lines = [f"📊 Suppliers at {location}:\n"]
+    
+    if detail_level == "summary":
+        lines.append(f"{'Supplier':<20} {'Records':<10} {'Changed':<10} {'Risk':<8}")
+        lines.append("-" * 50)
+        for supplier in suppliers:
+            metrics = compute_supplier_metrics(detail_records, location, supplier)
+            sup_name = supplier[:19]
+            records = metrics['affected_records']
+            changed = metrics['changed_records']
+            risk = metrics['risk_count']
+            lines.append(f"{sup_name:<20} {records:<10} {changed:<10} {risk:<8}")
+    
+    elif detail_level == "detailed":
+        lines.append(f"{'Supplier':<20} {'Records':<10} {'Changed':<10} {'Forecast':<12} {'Design':<10} {'Risk':<8}")
+        lines.append("-" * 70)
+        for supplier in suppliers:
+            metrics = compute_supplier_metrics(detail_records, location, supplier)
+            behavior = analyze_supplier_behavior(detail_records, location, supplier)
+            sup_name = supplier[:19]
+            records = metrics['affected_records']
+            changed = metrics['changed_records']
+            forecast = f"{metrics['forecast_impact']:+,.0f}"
+            design = f"{metrics['design_changes']}"
+            risk = metrics['risk_count']
+            lines.append(f"{sup_name:<20} {records:<10} {changed:<10} {forecast:<12} {design:<10} {risk:<8}")
+    
+    elif detail_level == "full":
+        for idx, supplier in enumerate(suppliers[:10], 1):
+            metrics = compute_supplier_metrics(detail_records, location, supplier)
+            behavior = analyze_supplier_behavior(detail_records, location, supplier)
+            lines.append(f"\n{idx}. Supplier: {supplier}")
+            lines.append(f"   Records: {metrics['affected_records']}")
+            lines.append(f"   Changed: {metrics['changed_records']}")
+            lines.append(f"   Forecast impact: {metrics['forecast_impact']:+,.0f}")
+            lines.append(f"   Design changes: {metrics['design_changes']} ({behavior['design_pct']}%)")
+            lines.append(f"   Availability issues: {metrics['availability_issues']}")
+            lines.append(f"   ROJ issues: {metrics['roj_issues']} ({behavior['roj_pct']}%)")
+            lines.append(f"   Risk count: {metrics['risk_count']}")
+    
+    lines.append(f"\n💡 Tip: Ask for more details like 'Show materials for [supplier]' or 'Which materials have design changes?'")
+    
+    return "\n".join(lines)
+
+def _generate_record_comparison_answer(question: str, ctx: dict, scope_type: str, scope_value: str) -> str:
+    """Generate record-level comparison (current vs previous).
+    
+    Task 19: Enhanced answer formatting for record comparison queries - current vs previous.
+    Task 20: Ask for clarification when location context is missing.
+    """
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Handle material ID queries
+    if scope_type == "material_id":
+        material_id = scope_value
+        
+        # Import helper function from response_builder
+        from response_builder import get_record_comparison
+        
+        # Get record comparison
+        comparison = get_record_comparison(detail_records, material_id)
+        
+        if "error" in comparison:
+            # Material not found - ask for clarification
+            return (
+                f"I couldn't find detailed records for material {material_id}.\n\n"
+                f"To help you better, please provide:\n"
+                f"  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+                f"  • Or ask: 'What changed for {material_id} at [location]?'\n\n"
+                f"💡 Tip: You can also ask 'Show current vs previous for {material_id}' for a comparison view."
+            )
+        
+        # Format current vs previous comparison (Task 19)
+        lines = [f"📊 Record Comparison: {material_id}\n"]
+        lines.append(f"{'Field':<20} {'Current':<20} {'Previous':<20} {'Change':<15}")
+        lines.append("-" * 75)
+        
+        forecast_delta = comparison['changes']['forecast_delta']
+        lines.append(f"{'Forecast':<20} {comparison['current']['forecast']:<20} {comparison['previous']['forecast']:<20} {forecast_delta:+,.0f}")
+        lines.append(f"{'ROJ':<20} {str(comparison['current']['roj']):<20} {str(comparison['previous']['roj']):<20} {'Changed' if comparison['current']['roj'] != comparison['previous']['roj'] else 'Unchanged':<15}")
+        lines.append(f"{'Supplier date':<20} {str(comparison['current']['supplier_date']):<20} {str(comparison['previous']['supplier_date']):<20} {'Changed' if comparison['current']['supplier_date'] != comparison['previous']['supplier_date'] else 'Unchanged':<15}")
+        lines.append(f"{'BOD':<20} {str(comparison['current']['bod']):<20} {str(comparison['previous']['bod']):<20} {'Changed' if comparison['current']['bod'] != comparison['previous']['bod'] else 'Unchanged':<15}")
+        lines.append(f"{'Form Factor':<20} {str(comparison['current']['form_factor']):<20} {str(comparison['previous']['form_factor']):<20} {'Changed' if comparison['current']['form_factor'] != comparison['previous']['form_factor'] else 'Unchanged':<15}")
+        lines.append("")
+        
+        lines.append("Flags:")
+        lines.append(f"  • New demand: {comparison['changes']['is_new_demand']}")
+        lines.append(f"  • Cancelled: {comparison['changes']['is_cancelled']}")
+        lines.append(f"  • Risk level: {comparison['changes']['risk_level']}")
+        
+        return "\n".join(lines)
+    
+    # Handle location queries
+    if scope_type == "location":
+        location = scope_value
+        return (
+            f"To show what changed at {location}, I need more details:\n\n"
+            f"Please specify:\n"
+            f"  • Material ID (e.g., C00000560-001)\n"
+            f"  • Or Equipment Category (e.g., UPS, MVSXRM)\n"
+            f"  • Or ask: 'List suppliers for {location}'\n\n"
+            f"💡 Examples:\n"
+            f"  • 'What changed for C00000560-001 at {location}?'\n"
+            f"  • 'Which materials have design changes at {location}?'\n"
+            f"  • 'List suppliers for {location}'"
+        )
+    
+    # Handle material group queries
+    if scope_type == "material_group":
+        category = scope_value
+        return (
+            f"To show what changed in {category}, I need more details:\n\n"
+            f"Please specify:\n"
+            f"  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+            f"  • Or ask: 'Which materials have design changes in {category}?'\n\n"
+            f"💡 Examples:\n"
+            f"  • 'What changed in {category} at CYS20_F01C01?'\n"
+            f"  • 'Which materials have design changes in {category}?'\n"
+            f"  • 'List suppliers for [location]'"
+        )
+    
+    # Default: ask for clarification
+    return (
+        "To help you better, please provide more context:\n\n"
+        "You can ask:\n"
+        "  • 'What changed for [material ID]?'\n"
+        "  • 'What changed at [location]?'\n"
+        "  • 'What changed in [equipment category]?'\n\n"
+        "💡 Examples:\n"
+        "  • 'What changed for C00000560-001?'\n"
+        "  • 'What changed at CYS20_F01C01?'\n"
+        "  • 'What changed in UPS?'"
+    )
+
+
+def _generate_design_filter_answer(question: str, ctx: dict, detail_level: str = "summary") -> str:
+    """Generate list of materials with design/form factor changes.
+    
+    Handles queries like: "Which materials have Form Factor changes?"
+    
+    detail_level: "summary" (basic), "detailed" (with location/supplier), "full" (all fields)
+    """
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Filter records with design changes
+    design_changed = [r for r in detail_records if r.get("designChanged")]
+    
+    if not design_changed:
+        return "No materials with design changes found."
+    
+    # Group by material ID and compute metrics
+    materials_dict = {}
+    for record in design_changed:
+        mat_id = record.get("materialId", "UNKNOWN")
+        if mat_id not in materials_dict:
+            materials_dict[mat_id] = {
+                "count": 0,
+                "locations": set(),
+                "suppliers": set(),
+                "forecast_delta": 0,
+                "risk_count": 0,
+                "material_group": record.get("materialGroup", ""),
+                "records": [],
+            }
+        materials_dict[mat_id]["count"] += 1
+        materials_dict[mat_id]["locations"].add(record.get("locationId", ""))
+        materials_dict[mat_id]["suppliers"].add(record.get("supplier", ""))
+        materials_dict[mat_id]["forecast_delta"] += record.get("qtyDelta", 0)
+        if record.get("riskLevel") in ["High", "Critical"]:
+            materials_dict[mat_id]["risk_count"] += 1
+        materials_dict[mat_id]["records"].append(record)
+    
+    # Sort by count (most impacted first)
+    sorted_materials = sorted(materials_dict.items(), key=lambda x: x[1]["count"], reverse=True)
+    
+    # Format output based on detail level
+    lines = [f"📊 Materials with Design/Form Factor Changes:\n"]
+    
+    if detail_level == "summary":
+        lines.append(f"{'Material ID':<15} {'Records':<10} {'Locations':<15} {'Forecast':<12} {'Risk':<8}")
+        lines.append("-" * 60)
+        for mat_id, metrics in sorted_materials[:20]:
+            loc_count = len(metrics["locations"])
+            forecast = f"{metrics['forecast_delta']:+,.0f}"
+            risk = metrics["risk_count"]
+            lines.append(f"{mat_id:<15} {metrics['count']:<10} {loc_count:<15} {forecast:<12} {risk:<8}")
+    
+    elif detail_level == "detailed":
+        lines.append(f"{'Material ID':<15} {'Group':<15} {'Records':<10} {'Locations':<15} {'Suppliers':<15} {'Forecast':<12} {'Risk':<8}")
+        lines.append("-" * 90)
+        for mat_id, metrics in sorted_materials[:20]:
+            loc_count = len(metrics["locations"])
+            sup_count = len(metrics["suppliers"])
+            forecast = f"{metrics['forecast_delta']:+,.0f}"
+            risk = metrics["risk_count"]
+            group = metrics["material_group"][:14]
+            lines.append(f"{mat_id:<15} {group:<15} {metrics['count']:<10} {loc_count:<15} {sup_count:<15} {forecast:<12} {risk:<8}")
+    
+    elif detail_level == "full":
+        for idx, (mat_id, metrics) in enumerate(sorted_materials[:10], 1):
+            lines.append(f"\n{idx}. Material ID: {mat_id}")
+            lines.append(f"   Group: {metrics['material_group']}")
+            lines.append(f"   Records affected: {metrics['count']}")
+            lines.append(f"   Locations: {', '.join(sorted(metrics['locations']))}")
+            lines.append(f"   Suppliers: {', '.join(sorted(metrics['suppliers']))}")
+            lines.append(f"   Forecast delta: {metrics['forecast_delta']:+,.0f}")
+            lines.append(f"   High-risk records: {metrics['risk_count']}")
+    
+    lines.append(f"\nTotal: {len(sorted_materials)} materials with design changes")
+    lines.append(f"\n💡 Tip: Ask for more details like 'Show locations for MAT-001' or 'Which suppliers have design changes?'")
+    
+    return "\n".join(lines)
+
+
+def _build_comparison_metrics(ctx: dict, scope_type: str, scope_value: str) -> dict:
+    """
+    Build comparison metrics for comparison queries.
+    Returns side-by-side metrics for two entities.
+    """
+    # This is a placeholder that will be populated by the comparison logic
+    # The actual metrics are computed in _generate_comparison_answer
+    return {
+        "entity1": scope_value,
+        "entity2": None,  # Will be extracted from question
+        "metrics": {}
+    }
+
+
+def _build_supplier_metrics(ctx: dict, scope_value: str) -> dict:
+    """
+    Build supplier metrics for supplier-by-location queries.
+    Returns supplier list with metrics for a location.
+    """
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    suppliers = {}
+    
+    # Group records by supplier for the given location
+    for record in detail_records:
+        loc = (record.get("locationId") or "").upper()
+        if loc == (scope_value or "").upper():
+            supplier = record.get("supplier", "Unknown")
+            if supplier not in suppliers:
+                suppliers[supplier] = {
+                    "supplier": supplier,
+                    "affectedRecords": 0,
+                    "forecastImpact": 0,
+                    "designChanges": 0,
+                    "availabilityIssues": 0,
+                    "rojIssues": 0,
+                    "riskLevel": "LOW"
+                }
+            
+            suppliers[supplier]["affectedRecords"] += 1
+            if record.get("qtyChanged"):
+                suppliers[supplier]["forecastImpact"] += record.get("qtyDelta", 0)
+            if record.get("designChanged"):
+                suppliers[supplier]["designChanges"] += 1
+            if record.get("rojChanged"):
+                suppliers[supplier]["rojIssues"] += 1
+            if record.get("riskLevel") in ["HIGH", "CRITICAL"]:
+                suppliers[supplier]["riskLevel"] = record.get("riskLevel")
+    
+    return {
+        "location": scope_value,
+        "suppliers": list(suppliers.values())
+    }
+
+
+def _build_record_comparison(ctx: dict, scope_type: str, scope_value: str) -> dict:
+    """
+    Build record comparison for record-detail queries.
+    Returns current vs previous comparison for a record.
+    """
+    detail_records = ctx.get("detailRecords", [])
+    
+    # NORMALIZE: Ensure consistent data format
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Find the record matching the scope
+    for record in detail_records:
+        if scope_type == "material_id" and (record.get("materialId") or "").upper() == (scope_value or "").upper():
+            return {
+                "materialId": record.get("materialId"),
+                "locationId": record.get("locationId"),
+                "current": {
+                    "forecast": record.get("forecastQty"),
+                    "roj": record.get("roj"),
+                    "bod": record.get("bod"),
+                    "formFactor": record.get("formFactor"),
+                },
+                "previous": {
+                    "forecast": record.get("forecastQtyPrevious"),
+                    "roj": record.get("rojPrevious"),
+                    "bod": record.get("bodPrevious"),
+                    "formFactor": record.get("ffPrevious"),
+                },
+                "changes": {
+                    "forecastDelta": record.get("qtyDelta"),
+                    "qtyChanged": record.get("qtyChanged"),
+                    "rojChanged": record.get("rojChanged"),
+                    "designChanged": record.get("designChanged"),
+                    "supplierChanged": record.get("supplierChanged"),
+                },
+                "riskLevel": record.get("riskLevel")
+            }
+    
+    return {}
+
+
 @app.route(route="explain", methods=["POST"])
 def explain(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Focused insight endpoint. Accepts question + optional context object.
-    When context is provided, uses it to ground the answer.
-    Falls back to cached snapshot when no context and mode=cached.
+    Focused insight endpoint with real-time, question-specific answers.
     """
     logging.info("Explain endpoint triggered.")
     try:
@@ -289,78 +1141,188 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
 
     location_id: Optional[str] = body.get("location_id")
     material_group: Optional[str] = body.get("material_group")
-    context: Optional[dict] = body.get("context")  # optional frontend DashboardContext
+    context: Optional[dict] = body.get("context")
 
     # --- Context-grounded path ---
     if context:
-        context_used = [k for k, v in context.items() if v is not None]
+        # NEW: Extract scope and determine answer mode
+        scope_type, scope_value = _extract_scope(question)
         query_type = _classify_question(question)
-        answer = _generate_answer_from_context(question, context)
+        answer_mode = _determine_answer_mode(query_type, scope_type)
+        
+        # Compute scoped metrics if needed
+        scoped_metrics = None
+        if answer_mode == "investigate" and not isinstance(scope_value, list):
+            scoped_metrics = _compute_scoped_metrics(
+                context.get("detailRecords", []),
+                scope_type,
+                scope_value
+            )
+        
+        # Generate answer with new logic
+        answer = _generate_answer_from_context(
+            question, context, answer_mode, scope_type, scope_value, scoped_metrics
+        )
+        
+        context_used = [k for k, v in context.items() if v is not None]
         explainability = _build_explainability(context, question)
-        return func.HttpResponse(
-            json.dumps({
-                "question": question,
-                "answer": answer,
-                "queryType": query_type,
-                "aiInsight": context.get("aiInsight"),
-                "rootCause": context.get("rootCause"),
-                "recommendedActions": context.get("recommendedActions", []),
+        
+        response = {
+            "question": question,
+            "answer": answer,
+            "queryType": query_type,
+            "answerMode": answer_mode,
+            "scopeType": scope_type,
+            "scopeValue": scope_value,
+            "aiInsight": context.get("aiInsight"),
+            "rootCause": context.get("rootCause"),
+            "recommendedActions": context.get("recommendedActions", []),
+            "planningHealth": context.get("planningHealth"),
+            "dataMode": context.get("dataMode", "cached"),
+            "lastRefreshedAt": context.get("lastRefreshedAt"),
+            "supportingMetrics": {
+                "changedRecordCount": context.get("changedRecordCount"),
+                "totalRecords": context.get("totalRecords"),
+                "trendDelta": context.get("trendDelta"),
                 "planningHealth": context.get("planningHealth"),
-                "dataMode": context.get("dataMode", "cached"),
-                "lastRefreshedAt": context.get("lastRefreshedAt"),
-                "supportingMetrics": {
-                    "changedRecordCount": context.get("changedRecordCount"),
-                    "totalRecords": context.get("totalRecords"),
-                    "trendDelta": context.get("trendDelta"),
-                    "planningHealth": context.get("planningHealth"),
-                },
-                "contextUsed": context_used,
-                "explainability": explainability,
-                "suggestedActions": _build_suggested_actions(question, context),
-                "followUpQuestions": _build_follow_ups(question, context),
-            }, default=str),
+            },
+            "contextUsed": context_used,
+            "explainability": explainability,
+            "suggestedActions": _build_suggested_actions(question, context),
+            "followUpQuestions": _build_follow_ups(question, context),
+        }
+        
+        # Add investigate mode fields
+        if answer_mode == "investigate" and scoped_metrics:
+            response["investigateMode"] = {
+                "filteredRecordsCount": scoped_metrics.get("filteredRecordsCount"),
+                "scopedContributionBreakdown": scoped_metrics.get("scopedContributionBreakdown"),
+                "scopedDrivers": scoped_metrics.get("scopedDrivers"),
+                "topContributingRecords": scoped_metrics.get("topContributingRecords"),
+                "scopeType": scope_type,
+                "scopeValue": scope_value,
+            }
+        
+        # Add optional fields for specific query types
+        if query_type == "comparison":
+            response["comparisonMetrics"] = _build_comparison_metrics(context, scope_type, scope_value)
+        elif query_type == "supplier_by_location":
+            response["supplierMetrics"] = _build_supplier_metrics(context, scope_value)
+        elif query_type == "record_detail":
+            response["recordComparison"] = _build_record_comparison(context, scope_type, scope_value)
+        
+        return func.HttpResponse(
+            json.dumps(response, default=str),
             mimetype="application/json",
             status_code=200,
         )
 
-    # --- Cached snapshot path (blob-derived) ---
+    # --- Cached snapshot path ---
     snap = load_snapshot()
     if not snap:
         return _error("No cached snapshot available. Run daily-refresh to load data from Blob Storage.", 404)
+    
+    # NEW: Extract scope and determine answer mode
+    scope_type, scope_value = _extract_scope(question)
     query_type = _classify_question(question)
-    answer = _generate_answer_from_context(question, snap)
+    answer_mode = _determine_answer_mode(query_type, scope_type)
+    
+    # Compute scoped metrics if needed
+    scoped_metrics = None
+    if answer_mode == "investigate" and not isinstance(scope_value, list):
+        scoped_metrics = _compute_scoped_metrics(
+            snap.get("detailRecords", []),
+            scope_type,
+            scope_value
+        )
+    
+    # Generate answer with new logic
+    answer = _generate_answer_from_context(
+        question, snap, answer_mode, scope_type, scope_value, scoped_metrics
+    )
+    
     explainability = _build_explainability(snap, question)
-    return func.HttpResponse(
-        json.dumps({
-            "question": question,
-            "answer": answer,
-            "queryType": query_type,
-            "aiInsight": snap.get("aiInsight"),
-            "rootCause": snap.get("rootCause"),
-            "recommendedActions": snap.get("recommendedActions", []),
-            "alerts": snap.get("alerts"),
-            "drivers": snap.get("drivers"),
+    
+    response = {
+        "question": question,
+        "answer": answer,
+        "queryType": query_type,
+        "answerMode": answer_mode,
+        "scopeType": scope_type,
+        "scopeValue": scope_value,
+        "aiInsight": snap.get("aiInsight"),
+        "rootCause": snap.get("rootCause"),
+        "recommendedActions": snap.get("recommendedActions", []),
+        "alerts": snap.get("alerts"),
+        "drivers": snap.get("drivers"),
+        "planningHealth": snap.get("planningHealth"),
+        "dataMode": "blob",
+        "lastRefreshedAt": snap.get("lastRefreshedAt"),
+        "supportingMetrics": {
+            "changedRecordCount": snap.get("changedRecordCount"),
+            "totalRecords": snap.get("totalRecords"),
+            "trendDelta": snap.get("trendDelta"),
             "planningHealth": snap.get("planningHealth"),
-            "dataMode": "blob",
-            "lastRefreshedAt": snap.get("lastRefreshedAt"),
-            "supportingMetrics": {
-                "changedRecordCount": snap.get("changedRecordCount"),
-                "totalRecords": snap.get("totalRecords"),
-                "trendDelta": snap.get("trendDelta"),
-                "planningHealth": snap.get("planningHealth"),
-            },
-            "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
-            "explainability": explainability,
-            "suggestedActions": _build_suggested_actions(question, snap),
-            "followUpQuestions": _build_follow_ups(question, snap),
-        }, default=str),
+        },
+        "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
+        "explainability": explainability,
+        "suggestedActions": _build_suggested_actions(question, snap),
+        "followUpQuestions": _build_follow_ups(question, snap),
+    }
+    
+    # Add investigate mode fields
+    if answer_mode == "investigate" and scoped_metrics:
+        response["investigateMode"] = {
+            "filteredRecordsCount": scoped_metrics.get("filteredRecordsCount"),
+            "scopedContributionBreakdown": scoped_metrics.get("scopedContributionBreakdown"),
+            "scopedDrivers": scoped_metrics.get("scopedDrivers"),
+            "topContributingRecords": scoped_metrics.get("topContributingRecords"),
+            "scopeType": scope_type,
+            "scopeValue": scope_value,
+        }
+    
+    # Add optional fields for specific query types
+    if query_type == "comparison":
+        response["comparisonMetrics"] = _build_comparison_metrics(snap, scope_type, scope_value)
+    elif query_type == "supplier_by_location":
+        response["supplierMetrics"] = _build_supplier_metrics(snap, scope_value)
+    elif query_type == "record_detail":
+        response["recordComparison"] = _build_record_comparison(snap, scope_type, scope_value)
+    
+    return func.HttpResponse(
+        json.dumps(response, default=str),
         mimetype="application/json",
         status_code=200,
     )
 
 
-def _generate_answer_from_context(question: str, ctx: dict) -> str:
-    """Generate a grounded plain-language answer from available context, using detailRecords when available."""
+def _generate_answer_from_context(question: str, ctx: dict, answer_mode: str = "summary", scope_type: str = None, scope_value: str = None, scoped_metrics: dict = None) -> str:
+    """Generate answer based on mode and scope. Enhanced for comparison and supplier queries.
+    
+    Task 18: Improved response filtering - shows only answer to current question, removes unrelated metrics.
+    """
+    query_type = _classify_question(question)
+    
+    # Investigate mode routing
+    if answer_mode == "investigate":
+        if query_type == "comparison":
+            if isinstance(scope_value, list) and len(scope_value) >= 2:
+                return _generate_comparison_answer(question, ctx, scope_type, scope_value)
+            return "Could not extract entities to compare."
+        elif query_type == "supplier_by_location":
+            return _generate_supplier_by_location_answer(question, ctx, scope_type, scope_value, detail_level="detailed")
+        elif query_type == "record_detail":
+            return _generate_record_comparison_answer(question, ctx, scope_type, scope_value)
+        elif query_type == "design_filter":
+            return _generate_design_filter_answer(question, ctx, detail_level="detailed")
+        elif query_type == "root_cause":
+            return _generate_root_cause_answer(question, ctx, scope_type, scope_value, scoped_metrics)
+        elif query_type == "why_not":
+            return _generate_why_not_answer(question, ctx, scope_type, scope_value, scoped_metrics)
+        elif query_type == "traceability":
+            return _generate_traceability_answer(question, ctx, scoped_metrics)
+    
+    # Default: summary mode with improved filtering (Task 18)
     q = question.lower()
     health = ctx.get("planningHealth")
     status = ctx.get("status", "")
@@ -381,6 +1343,9 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
     dc_summary = ctx.get("datacenterSummary") or []
     mg_summary = ctx.get("materialGroupSummary") or []
 
+    # Task 18: Filter responses to show only answer to current question
+    # Remove unrelated metrics and suggestions, keep answer and supporting metrics for current scope
+    
     if any(w in q for w in ["health", "critical", "score", "low"]):
         contrib_text = ""
         if contrib:
@@ -388,7 +1353,7 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
         return (
             f"Planning health is {health}/100 ({status}). "
             f"{pct}% of records changed ({changed}/{total}). "
-            f"Risk level: {risk}.{contrib_text} {ai_insight}"
+            f"Risk level: {risk}.{contrib_text}"
         )
     if any(w in q for w in ["changed", "change", "most", "what changed"]):
         loc = drivers.get("location", "N/A")
@@ -398,40 +1363,90 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
             contrib_text = f" Contribution: Qty {contrib.get('quantityCount', 0)}, Supplier {contrib.get('supplierCount', 0)}, Design {contrib.get('designCount', 0)}, Schedule {contrib.get('scheduleCount', 0)}."
         return (
             f"{changed} records changed ({pct}% of total). "
-            f"Primary driver: {change_type}. Top location: {loc}.{contrib_text} "
-            f"{root_cause}"
+            f"Primary driver: {change_type}. Top location: {loc}.{contrib_text}"
         )
     if any(w in q for w in ["forecast", "demand", "increase", "decrease", "trend"]):
         return (
             f"Forecast trend is {trend} with a delta of {trend_delta:+,.0f} units. "
-            f"Demand volatility: {kpis.get('demandVolatility', 'N/A')}%. "
-            f"{ai_insight}"
+            f"Demand volatility: {kpis.get('demandVolatility', 'N/A')}%."
         )
     if any(w in q for w in ["action", "planner", "do next", "recommend"]):
         if actions:
             return "Recommended actions:\n" + "\n".join(f"• {a}" for a in actions)
         return "No specific actions recommended at this time."
     if any(w in q for w in ["location", "site", "datacenter"]):
+        # Check if asking about a specific location
+        if scope_type == "location" and scope_value:
+            return (
+                f"To show what changed at {scope_value}, I need more details:\n\n"
+                f"Please specify:\n"
+                f"  • Material ID (e.g., C00000560-001)\n"
+                f"  • Or Equipment Category (e.g., UPS, MVSXRM)\n"
+                f"  • Or ask: 'List suppliers for {scope_value}'\n\n"
+                f"💡 Examples:\n"
+                f"  • 'What changed for C00000560-001 at {scope_value}?'\n"
+                f"  • 'Which materials have design changes at {scope_value}?'\n"
+                f"  • 'List suppliers for {scope_value}'"
+            )
+        # Global location query
         loc = drivers.get("location", "N/A")
         top_locs = ", ".join(f"{d.get('locationId', '?')}: {d.get('changed', 0)} changed" for d in dc_summary[:3]) if dc_summary else "N/A"
-        return f"Top impacted location: {loc}. Top locations: {top_locs}. {root_cause}"
+        return f"Top impacted location: {loc}. Top locations: {top_locs}."
     if any(w in q for w in ["material", "group", "category", "equipment"]):
+        # Check if asking about a specific material group
+        if scope_type == "material_group" and scope_value:
+            return (
+                f"To show what changed in {scope_value}, I need more details:\n\n"
+                f"Please specify:\n"
+                f"  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+                f"  • Or ask: 'Which materials have design changes in {scope_value}?'\n\n"
+                f"💡 Examples:\n"
+                f"  • 'What changed in {scope_value} at CYS20_F01C01?'\n"
+                f"  • 'Which materials have design changes in {scope_value}?'\n"
+                f"  • 'List suppliers for [location]'"
+            )
+        # Global material group query
         top_mgs = ", ".join(f"{g.get('materialGroup', '?')}: {g.get('changed', 0)} changed" for g in mg_summary[:3]) if mg_summary else "N/A"
-        return f"Top material groups: {top_mgs}. {root_cause}"
+        return f"Top material groups: {top_mgs}."
     if any(w in q for w in ["supplier"]):
-        sup = drivers.get("supplier", "N/A")
-        reliability = kpis.get("supplierReliability", "N/A")
-        return f"Top impacted supplier: {sup}. Supplier reliability: {reliability}%. {root_cause}"
+        # Check if asking about a specific location
+        if scope_type == "location" and scope_value:
+            return _generate_supplier_by_location_answer(question, ctx, scope_type, scope_value, detail_level="detailed")
+        # Global supplier query - ask for clarification
+        return (
+            "To analyze suppliers, I need more context:\n\n"
+            "Please specify:\n"
+            "  • Location ID (e.g., CYS20_F01C01, DSM18_F01C01)\n"
+            "  • Or ask: 'List suppliers for [location]'\n\n"
+            "💡 Examples:\n"
+            "  • 'List suppliers for CYS20_F01C01'\n"
+            "  • 'Which suppliers at CYS20_F01C01 have design changes?'\n"
+            "  • 'Which locations have the most changes?'"
+        )
     if any(w in q for w in ["risk", "high risk"]):
         high_risk_count = risk_summary.get("highRiskCount", 0)
         risk_conc = kpis.get("riskConcentration", "N/A")
-        return f"Risk level: {risk}. High-risk records: {high_risk_count}. Risk concentration: {risk_conc}%. {root_cause}"
+        return f"Risk level: {risk}. High-risk records: {high_risk_count}. Risk concentration: {risk_conc}%."
     if any(w in q for w in ["design", "bod", "form factor"]):
         design_rate = kpis.get("designChangeRate", "N/A")
-        return f"Design change rate: {design_rate}%. {root_cause}"
+        return f"Design change rate: {design_rate}%."
     if any(w in q for w in ["schedule", "roj", "delay"]):
+        # Check if asking about a specific location
+        if scope_type == "location" and scope_value:
+            return (
+                f"To check ROJ delays at {scope_value}, I need more details:\n\n"
+                f"Please specify:\n"
+                f"  • Material ID (e.g., C00000560-001)\n"
+                f"  • Or Equipment Category (e.g., UPS, MVSXRM)\n"
+                f"  • Or ask: 'List suppliers for {scope_value}'\n\n"
+                f"💡 Examples:\n"
+                f"  • 'Which suppliers at {scope_value} have ROJ delays?'\n"
+                f"  • 'List suppliers for {scope_value}'\n"
+                f"  • 'Which locations have ROJ delays?'"
+            )
+        # Global ROJ query
         stability = kpis.get("scheduleStability", "N/A")
-        return f"Schedule stability: {stability}%. {root_cause}"
+        return f"Schedule stability: {stability}%."
     if any(w in q for w in ["new demand", "new record"]):
         new_ratio = kpis.get("newDemandRatio", "N/A")
         return f"New demand ratio: {new_ratio}%. {ctx.get('newRecordCount', 0)} new records this cycle."
@@ -458,7 +1473,7 @@ def _generate_answer_from_context(question: str, ctx: dict) -> str:
     if any(w in q for w in ["top record", "contributing", "impacted material", "show record", "detail"]):
         return _handle_traceability(q, ctx, details)
 
-    # Default: return full insight
+    # Default: return focused insight
     return ai_insight or root_cause or "No analysis available for this question."
 
 
@@ -551,15 +1566,49 @@ def _handle_traceability(q: str, ctx: dict, details: list) -> str:
 
 
 def _classify_question(question: str) -> str:
-    """Classify question type for routing and explainability."""
+    """Classify question type for routing and explainability. Enhanced for comparison and supplier queries."""
     q = question.lower()
-    if any(w in q for w in ["compare", " vs ", "versus", "difference between"]): return "comparison"
-    if any(w in q for w in ["why not", "why isn't", "not risky", "not flagged", "not changed", "stable"]): return "why_not"
-    if any(w in q for w in ["top record", "contributing", "impacted material", "show record", "detail"]): return "traceability"
-    if any(w in q for w in ["why", "cause", "reason", "root"]): return "root_cause"
-    if any(w in q for w in ["risk", "high risk", "danger"]): return "risk"
-    if any(w in q for w in ["action", "do next", "recommend", "planner"]): return "action"
-    if any(w in q for w in ["source", "blob", "mock", "refresh", "stale", "provenance"]): return "provenance"
+    
+    # Comparison queries
+    if any(w in q for w in ["compare", " vs ", "versus", "difference between", "compared to"]):
+        return "comparison"
+    
+    # Supplier queries
+    if any(w in q for w in ["supplier", "suppliers", "which supplier", "list supplier"]):
+        return "supplier_by_location"
+    
+    # Record detail queries
+    if any(w in q for w in ["what changed", "compare this", "current vs previous", "record detail"]):
+        return "record_detail"
+    
+    # Why-not queries
+    if any(w in q for w in ["why not", "why isn't", "not risky", "not flagged", "not changed", "stable"]):
+        return "why_not"
+    
+    # Traceability queries
+    if any(w in q for w in ["top record", "contributing", "impacted material", "show record", "detail"]):
+        return "traceability"
+    
+    # Design/Form Factor queries - materials with design changes
+    if any(w in q for w in ["which materials have", "which material", "materials with"]) and any(w in q for w in ["design", "form factor", "bod"]):
+        return "design_filter"
+    
+    # Root cause queries
+    if any(w in q for w in ["why", "cause", "reason", "root"]):
+        return "root_cause"
+    
+    # Risk queries
+    if any(w in q for w in ["risk", "high risk", "danger"]):
+        return "risk"
+    
+    # Action queries
+    if any(w in q for w in ["action", "do next", "recommend", "planner"]):
+        return "action"
+    
+    # Provenance queries
+    if any(w in q for w in ["source", "blob", "mock", "refresh", "stale", "provenance"]):
+        return "provenance"
+    
     return "summary"
 
 
@@ -617,11 +1666,60 @@ def _build_suggested_actions(question: str, ctx: dict) -> list:
 
 
 def _build_follow_ups(question: str, ctx: dict) -> list:
-    """Generate contextual follow-up questions."""
+    """Generate contextual follow-up questions.
+    
+    Task 20: Improved follow-up suggestion generation - 2-3 contextual suggestions per answer.
+    Implements patterns for each intent type to guide toward deeper analysis.
+    """
     q = question.lower()
+    query_type = _classify_question(question)
     drivers = ctx.get("drivers") or {}
     follow_ups = []
-    if any(w in q for w in ["health", "critical"]):
+    
+    # Task 20: Contextual suggestions based on query type
+    if query_type == "comparison":
+        # For comparison: suggest drill-down into specific supplier or material
+        follow_ups = [
+            "Which supplier is driving the difference?",
+            "Show design changes for each entity",
+            "What's the forecast impact for each?"
+        ]
+    elif query_type == "supplier_by_location":
+        # For supplier: suggest root cause analysis
+        follow_ups = [
+            "Why is this supplier having issues?",
+            "What's the root cause of the changes?",
+            "Which materials are most affected?"
+        ]
+    elif query_type == "record_detail":
+        # For record detail: suggest comparison with other records
+        follow_ups = [
+            "How does this compare to other records?",
+            "What's the risk level for this record?",
+            "Show similar records with changes"
+        ]
+    elif query_type == "root_cause":
+        # For root cause: suggest actions and related analysis
+        follow_ups = [
+            "What actions should be taken?",
+            "Which locations are most impacted?",
+            "Show top contributing records"
+        ]
+    elif query_type == "why_not":
+        # For why-not: suggest what IS changing
+        follow_ups = [
+            "What IS driving changes?",
+            "Show current risk level",
+            "What changed most this cycle?"
+        ]
+    elif query_type == "traceability":
+        # For traceability: suggest deeper analysis
+        follow_ups = [
+            "Why are these records changing?",
+            "What's the risk level for top records?",
+            "Compare these records to others"
+        ]
+    elif any(w in q for w in ["health", "critical"]):
         follow_ups = ["What is driving the risk?", "Which locations are most impacted?", "What actions should be taken?"]
     elif any(w in q for w in ["change", "driver"]):
         follow_ups = ["Is this demand-driven or design-driven?", "Show top risk areas", "What should the planner do?"]
@@ -635,6 +1733,7 @@ def _build_follow_ups(question: str, ctx: dict) -> list:
         follow_ups = ["What IS driving changes?", "Show current risk level", "What changed most?"]
     else:
         follow_ups = ["What changed most?", "Show KPI summary", "What should the planner do next?"]
+    
     return follow_ups[:3]
 
 

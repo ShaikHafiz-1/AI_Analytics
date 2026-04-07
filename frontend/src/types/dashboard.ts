@@ -197,6 +197,8 @@ export interface DashboardContext {
   datacenterCount: number;
   materialGroups: string[];
   highRiskRecordCount: number;
+  // Detail records for supplier queries and analysis
+  detailRecords: DetailRecord[];
 }
 
 export interface ExplainRequest {
@@ -209,6 +211,10 @@ export interface ExplainRequest {
 export interface ExplainResponse {
   question: string;
   answer: string;
+  queryType: string;
+  answerMode: string;
+  scopeType?: string;
+  scopeValue?: string;
   aiInsight: string;
   rootCause: string;
   recommendedActions: string[];
@@ -222,6 +228,31 @@ export interface ExplainResponse {
     planningHealth: number;
   };
   contextUsed: string[];
+  comparisonMetrics?: {
+    entity1: string;
+    entity2?: string;
+    metrics: Record<string, any>;
+  };
+  supplierMetrics?: {
+    location: string;
+    suppliers: Array<{
+      supplier: string;
+      affectedRecords: number;
+      forecastImpact: number;
+      designChanges: number;
+      availabilityIssues: number;
+      rojIssues: number;
+      riskLevel: string;
+    }>;
+  };
+  recordComparison?: {
+    materialId: string;
+    locationId: string;
+    current: Record<string, any>;
+    previous: Record<string, any>;
+    changes: Record<string, any>;
+    riskLevel: string;
+  };
 }
 
 export interface DebugSnapshotResponse {
