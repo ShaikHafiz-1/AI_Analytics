@@ -1,6 +1,64 @@
 # Copilot Real-Time Answers - Design
 
-## Architecture Overview
+## Hybrid Architecture Overview
+
+```
+User Query
+    ↓
+Azure OpenAI (Intent + Entity Extraction)
+    ├─ Classify intent (comparison, root_cause, why_not, etc.)
+    ├─ Extract entities (LOCID, GSCEQUIPCAT, PRDID, LOCFR)
+    └─ Identify missing context
+    ↓
+Context Validation
+    ├─ Check if required context is available
+    ├─ If missing → ClarificationEngine (interactive guidance)
+    └─ If complete → Proceed to MCP
+    ↓
+MCP (Single Source of Truth)
+    ├─ Query Context (intent, entities, selectedContext)
+    ├─ Analytics Context (metrics, drivers, risk summary)
+    ├─ Provenance (data source, freshness, blob files)
+    ├─ SAP Schema (field dictionary, semantic mapping)
+    └─ Domain Rules (composite key, design change logic)
+    ↓
+Deterministic Engine (ReasoningEngine)
+    ├─ Record matching (current vs previous)
+    ├─ Forecast delta, ROJ delta computation
+    ├─ Supplier changes, design changes detection
+    ├─ Aggregation by location, supplier, material group
+    └─ Scoped metrics computation
+    ↓
+MCP (Final Structured Output)
+    ├─ Decision
+    ├─ Key Metrics
+    ├─ Drivers (percentage breakdown)
+    ├─ Risk Profile
+    ├─ Actions (Top / Next / Monitor)
+    └─ Traceability (top contributing records)
+    ↓
+Azure OpenAI (Response Generation)
+    ├─ Convert structured output to natural language
+    ├─ Validate against SAP schema (prevent hallucination)
+    ├─ Generate conversational response
+    └─ Include decision, metrics, drivers, risk, actions
+    ↓
+Response to UI
+    ├─ Natural language answer
+    ├─ Investigate mode fields (if scoped)
+    ├─ Explainability (freshness, confidence)
+    ├─ Suggested actions
+    └─ Follow-up questions
+```
+
+## Core Principle: Deterministic Engine = Truth
+
+- **MCP** = Context (structured data, schema, domain rules)
+- **Azure OpenAI** = Intelligence layer (intent, entity extraction, response generation)
+- **ReasoningEngine** = Computation (all metrics, aggregations, comparisons)
+- **Never invert this relationship** - LLM must never compute metrics or access raw data
+
+## Architecture Overview (Original - Investigate Mode)
 
 ```
 User Question
@@ -40,6 +98,186 @@ Return Response
 ```
 
 ## Core Components
+
+### 0. Azure OpenAI Integration (NEW)
+
+**Purpose**: Intelligent intent understanding and natural language response generation
+
+```python
+class AzureOpenAIIntegration:
+    """
+    Handles all Azure OpenAI interactions.
+    
+    CRITICAL: Only use for:
+    - Intent classification
+    - Entity extraction
+    - Clarification prompts
+    - Response generation
+    
+    NEVER use for:
+    - Calculations
+    - Aggregations
+    - Accessing raw data
+    """
+    
+    def extract_intent_and_entities(self, query: str) -> dict:
+        """
+        Use Azure OpenAI to extract intent and entities.
+        
+        Returns: {
+            "intent": "comparison" | "root_cause" | "why_not" | "traceability" | "summary",
+            "entities": {
+                "LOCID": ["LOC001", "LOC002"],
+                "GSCEQUIPCAT": ["UPS", "PUMP"],
+                "PRDID": ["MAT-101"],
+                "LOCFR": ["Supplier A"]
+            },
+            "missingContext": ["LOCID", "GSCEQUIPCAT"],
+            "confidence": 0.95
+        }
+        """
+        # Call Azure OpenAI with system prompt
+        # System prompt includes SAP field dictionary and semantic mapping
+        # Extract intent and entities from response
+        pass
+    
+    def generate_clarification_prompt(self, missing_context: list, available_options: dict) -> str:
+        """
+        Generate natural language clarification prompt.
+        
+        Args:
+            missing_context: ["LOCID", "GSCEQUIPCAT"]
+            available_options: {
+                "LOCID": ["LOC001", "LOC002", "LOC003"],
+                "GSCEQUIPCAT": ["UPS", "PUMP", "VALVE"]
+            }
+        
+        Returns: "Please select a location: LOC001, LOC002, or LOC003?"
+        """
+        pass
+    
+    def generate_response(self, structured_output: dict, mcp_context: dict) -> str:
+        """
+        Convert structured output to natural language response.
+        
+        Args:
+            structured_output: {
+                "decision": "Location LOC001 is risky",
+                "keyMetrics": {"changedCount": 15, "changeRate": 45.5},
+                "drivers": {"forecast": 60, "supplier": 30, "design": 10},
+                "riskProfile": "High",
+                "actions": ["Monitor forecast changes", "Contact supplier"]
+            }
+            mcp_context: Full MCP context with SAP schema
+        
+        Returns: Natural language response grounded in data
+        """
+        # Call Azure OpenAI with structured output
+        # Include SAP schema in system prompt to prevent hallucination
+        # Validate response against schema before returning
+        pass
+```
+
+### 0.1: MCP Context Builder (NEW)
+
+**Purpose**: Build complete MCP context with schema and domain rules
+
+```python
+class MCPContextBuilder:
+    """
+    Builds complete MCP context for all queries.
+    
+    MCP = Single Source of Truth
+    """
+    
+    def build_mcp_context(self, analytics_data: dict, detail_records: list) -> dict:
+        """
+        Build complete MCP context.
+        
+        Returns: {
+            "queryContext": {
+                "intent": "comparison",
+                "entities": {"LOCID": ["LOC001", "LOC002"]},
+                "selectedContext": {...}
+            },
+            "analyticsContext": {
+                "planningHealth": "Critical",
+                "forecastNew": 1000,
+                "forecastOld": 800,
+                "trendDelta": 200,
+                "changedRecordCount": 15,
+                "totalRecords": 33,
+                "drivers": {"forecast": 60, "supplier": 30, "design": 10},
+                "riskSummary": {...},
+                "supplierSummary": {...},
+                "materialGroupSummary": {...},
+                "datacenterSummary": {...},
+                "detailRecords": [...]
+            },
+            "provenance": {
+                "dataSource": "Blob",
+                "lastRefreshedAt": "2026-04-09T03:00:00Z",
+                "blobFileNamesUsed": ["data_2026_04_09.csv"],
+                "recordsAnalyzed": 1000
+            },
+            "sapSchema": {
+                "fieldDictionary": {...},
+                "semanticMapping": {...},
+                "domainRules": {...}
+            }
+        }
+        """
+        pass
+    
+    def get_sap_field_dictionary(self) -> dict:
+        """
+        Return complete SAP field dictionary.
+        """
+        return {
+            "LOCID": "Location ID",
+            "PRDID": "Material ID",
+            "GSCEQUIPCAT": "Material Group",
+            "GSCPREVFCSTQTY": "Previous Forecast",
+            "GSCFSCTQTY": "Current Forecast",
+            "FCST_Delta Qty": "Forecast Change",
+            "GSCPREVROJNBD": "Previous ROJ",
+            "GSCCONROJDATE": "Current ROJ",
+            "NBD_DeltaDays": "ROJ Shift",
+            "LOCFR": "Supplier",
+            "GSCPREVSUPLDATE": "Previous Supplier Date",
+            "GSCSUPLDATE": "Current Supplier Date",
+            "Is_SupplierDateMissing": "Supplier Missing Flag",
+            "ZCOIBODVER": "BOD Version",
+            "ZCOIFORMFACT": "Form Factor",
+            "Is_New Demand": "New Demand",
+            "Is_cancelled": "Cancelled",
+            "Risk_Flag": "Risk"
+        }
+    
+    def get_semantic_mapping(self) -> dict:
+        """
+        Return semantic mapping for domain logic.
+        """
+        return {
+            "forecast_change": "GSCFSCTQTY - GSCPREVFCSTQTY",
+            "design_change": "ZCOIBODVER changed OR ZCOIFORMFACT changed",
+            "supplier_issue": "GSCSUPLDATE changed OR Is_SupplierDateMissing",
+            "schedule_issue": "NBD_DeltaDays > 0"
+        }
+    
+    def get_domain_rules(self) -> dict:
+        """
+        Return domain rules for SAP logic.
+        """
+        return {
+            "compositeKey": ["LOCID", "GSCEQUIPCAT", "PRDID"],
+            "designChangeLogic": {
+                "TRUE_IF": ["ZCOIBODVER changed", "ZCOIFORMFACT changed"],
+                "EXCLUDE": ["Is_New Demand", "Is_cancelled"]
+            },
+            "supplierGrouping": "LOCFR"
+        }
+```
 
 ### 1. Question Classification (Enhanced)
 

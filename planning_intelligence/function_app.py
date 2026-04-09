@@ -26,6 +26,10 @@ from trend_analyzer import (
 from dashboard_builder import build_dashboard_response
 from response_builder import build_response
 from snapshot_store import load_snapshot, snapshot_exists, get_last_updated_time
+from reasoning_engine import ReasoningEngine
+from clarification_engine import ClarificationEngine
+from enhanced_intent_parser import EnhancedIntentParser
+from nlp_endpoint import handle_nlp_query, NLPEndpointHandler
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -248,6 +252,129 @@ def _error(message: str, status: int) -> func.HttpResponse:
         mimetype="application/json",
         status_code=status,
     )
+
+
+@app.route(route="planning_intelligence_nlp", methods=["POST"])
+def planning_intelligence_nlp(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Natural Language Processing endpoint for Copilot UI.
+    
+    Accepts natural language questions and processes them through the NLP pipeline.
+    
+    Request body:
+    {
+        "question": "List suppliers for CYS20_F01C01",
+        "detail_records": [...],
+        "conversation_history": [...]  # Optional
+    }
+    
+    Response:
+    {
+        "question": "List suppliers for CYS20_F01C01",
+        "answer": "📊 CYS20_F01C01: 15 records total...",
+        "queryType": "traceability",
+        "scopeType": "location",
+        "scopeValue": "CYS20_F01C01",
+        "answerMode": "investigate",
+        "confidence": 0.95,
+        "conversationHistory": [...]
+    }
+    """
+    logging.info("Planning Intelligence NLP endpoint triggered.")
+    return handle_nlp_query(req)
+
+
+@app.route(route="reasoning-query", methods=["POST"])
+def reasoning_query(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Reasoning-based query endpoint using the new intelligence layer.
+    
+    Replaces template-based responses with dynamic, reasoning-driven outputs.
+    Implements strict query → intent → execution flow with accurate computation.
+    
+    Request body:
+    {
+        "question": "Which suppliers at CYS20_F01C01 have design changes?",
+        "detailRecords": [...],  // Optional: if provided, uses this data
+        "context": {...}         // Optional: if provided, uses this context
+    }
+    
+    Response:
+    {
+        "question": "...",
+        "answer": "...",  // Dynamic, reasoning-driven response
+        "intent": "list|compare|root_cause|...",
+        "entities": {
+            "location": "...",
+            "supplier": "...",
+            "material_id": "...",
+            "material_group": "..."
+        }
+    }
+    """
+    logging.info("Reasoning query endpoint triggered.")
+    
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body.", 400)
+    
+    question = body.get("question", "").strip()
+    if not question:
+        return _error("question is required", 400)
+    
+    # Get detail records from request or context
+    detail_records = body.get("detailRecords", [])
+    if not detail_records:
+        context = body.get("context", {})
+        detail_records = context.get("detailRecords", [])
+    
+    # If still no records, try loading from snapshot
+    if not detail_records:
+        snap = load_snapshot()
+        if snap:
+            detail_records = snap.get("detailRecords", [])
+    
+    if not detail_records:
+        return _error("No detail records available. Provide detailRecords or run daily-refresh.", 404)
+    
+    # Normalize records
+    detail_records = _normalize_detail_records(detail_records)
+    
+    # Process query through reasoning engine
+    try:
+        engine = ReasoningEngine()
+        answer = engine.process_query(question, detail_records)
+        
+        # Extract entities for response
+        entities = {
+            "location": engine.extractor.extract_location(question),
+            "material_id": engine.extractor.extract_material_id(question),
+            "material_group": engine.extractor.extract_material_group(question),
+            "supplier": engine.extractor.extract_supplier(question),
+            "comparison_pair": engine.extractor.extract_comparison_pair(question),
+        }
+        
+        intent = engine.classifier.classify(question)
+        
+        response = {
+            "question": question,
+            "answer": answer,
+            "intent": intent,
+            "entities": entities,
+            "dataMode": "reasoning",
+            "timestamp": get_last_updated_time(),
+        }
+        
+        return func.HttpResponse(
+            json.dumps(response, default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+    
+    except Exception as e:
+        logging.error(f"Reasoning query failed: {e}", exc_info=True)
+        return _error(f"Query processing failed: {str(e)}", 500)
 
 
 @app.route(route="planning-dashboard", methods=["POST"])
@@ -1046,15 +1173,23 @@ def _build_supplier_metrics(ctx: dict, scope_value: str) -> dict:
     """
     detail_records = ctx.get("detailRecords", [])
     
+    # DEBUG: Log what we received
+    logging.info(f"_build_supplier_metrics: scope_value={scope_value}, detailRecords count={len(detail_records)}")
+    if detail_records and len(detail_records) > 0:
+        logging.info(f"First record keys: {list(detail_records[0].keys()) if isinstance(detail_records[0], dict) else 'not a dict'}")
+        logging.info(f"First record: {detail_records[0]}")
+    
     # NORMALIZE: Ensure consistent data format
     detail_records = _normalize_detail_records(detail_records)
     
     suppliers = {}
+    matched_count = 0
     
     # Group records by supplier for the given location
     for record in detail_records:
         loc = (record.get("locationId") or "").upper()
         if loc == (scope_value or "").upper():
+            matched_count += 1
             supplier = record.get("supplier", "Unknown")
             if supplier not in suppliers:
                 suppliers[supplier] = {
@@ -1076,6 +1211,8 @@ def _build_supplier_metrics(ctx: dict, scope_value: str) -> dict:
                 suppliers[supplier]["rojIssues"] += 1
             if record.get("riskLevel") in ["HIGH", "CRITICAL"]:
                 suppliers[supplier]["riskLevel"] = record.get("riskLevel")
+    
+    logging.info(f"_build_supplier_metrics: matched {matched_count} records for location {scope_value}, found {len(suppliers)} suppliers")
     
     return {
         "location": scope_value,
@@ -1128,6 +1265,18 @@ def _build_record_comparison(ctx: dict, scope_type: str, scope_value: str) -> di
 def explain(req: func.HttpRequest) -> func.HttpResponse:
     """
     Focused insight endpoint with real-time, question-specific answers.
+    
+    ENHANCED WITH NLP LAYER INTEGRATION (BUGFIX):
+    - Routes natural language questions through NLP layer first
+    - Performs intent classification, entity extraction, out-of-scope detection
+    - Maintains conversation history to prevent duplicate responses
+    - Falls back to REASONING ENGINE for complete queries
+    
+    NLP Layer Integration:
+    - Detects out-of-scope questions and returns clarification
+    - Extracts entities and classifies intent
+    - Maintains conversation context across interactions
+    - Prevents duplicate responses
     """
     logging.info("Explain endpoint triggered.")
     try:
@@ -1142,158 +1291,223 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
     location_id: Optional[str] = body.get("location_id")
     material_group: Optional[str] = body.get("material_group")
     context: Optional[dict] = body.get("context")
+    selected_context: Optional[dict] = body.get("selectedContext")  # User's previous selections
+    conversation_history: Optional[List[dict]] = body.get("conversationHistory", [])
 
-    # --- Context-grounded path ---
+    # Get detail records from context or snapshot
+    detail_records = []
     if context:
-        # NEW: Extract scope and determine answer mode
-        scope_type, scope_value = _extract_scope(question)
-        query_type = _classify_question(question)
-        answer_mode = _determine_answer_mode(query_type, scope_type)
-        
-        # Compute scoped metrics if needed
-        scoped_metrics = None
-        if answer_mode == "investigate" and not isinstance(scope_value, list):
-            scoped_metrics = _compute_scoped_metrics(
-                context.get("detailRecords", []),
-                scope_type,
-                scope_value
-            )
-        
-        # Generate answer with new logic
-        answer = _generate_answer_from_context(
-            question, context, answer_mode, scope_type, scope_value, scoped_metrics
+        detail_records = context.get("detailRecords", [])
+    
+    if not detail_records:
+        snap = load_snapshot()
+        if snap:
+            detail_records = snap.get("detailRecords", [])
+    
+    if not detail_records:
+        return _error("No detail records available. Run daily-refresh to load data.", 404)
+    
+    # Normalize records
+    detail_records = _normalize_detail_records(detail_records)
+    
+    try:
+        # ===== NEW: PHASE 1 - ROUTE THROUGH NLP LAYER FIRST =====
+        # Step 1: Process question through NLP layer for intent classification and entity extraction
+        logging.info(f"Processing question through NLP layer: {question}")
+        nlp_handler = NLPEndpointHandler()
+        nlp_response = nlp_handler.process_question(
+            question=question,
+            detail_records=detail_records,
+            conversation_history=conversation_history
         )
         
-        context_used = [k for k, v in context.items() if v is not None]
-        explainability = _build_explainability(context, question)
+        # Extract NLP results
+        nlp_query_type = nlp_response.get("queryType", "summary")
+        nlp_scope_type = nlp_response.get("scopeType")
+        nlp_scope_value = nlp_response.get("scopeValue")
+        nlp_confidence = nlp_response.get("confidence", 0.5)
+        nlp_answer = nlp_response.get("answer")
+        nlp_conversation_history = nlp_response.get("conversationHistory", [])
+        azure_openai_used = nlp_response.get("azureOpenAIUsed", False)
         
+        logging.info(f"NLP Classification: queryType={nlp_query_type}, confidence={nlp_confidence}, azureOpenAIUsed={azure_openai_used}")
+        
+        # ===== NEW: PHASE 2 - HANDLE OUT-OF-SCOPE QUESTIONS =====
+        # Step 2: If NLP detected out-of-scope question, return NLP response directly
+        if nlp_query_type == "out_of_scope":
+            logging.info("Out-of-scope question detected by NLP layer")
+            response = {
+                "question": question,
+                "answer": nlp_answer,
+                "intent": nlp_query_type,
+                "entities": {},
+                "nlpProcessed": True,
+                "azureOpenAIUsed": azure_openai_used,
+                "confidence": nlp_confidence,
+                "conversationHistory": nlp_conversation_history,
+                "timestamp": get_last_updated_time(),
+            }
+            return func.HttpResponse(
+                json.dumps(response, default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+        
+        # ===== NEW: PHASE 3 - HANDLE CLARIFICATION NEEDED =====
+        # Step 3: If NLP detected clarification is needed, return clarification response
+        if nlp_query_type == "clarification_needed":
+            logging.info("Clarification needed for question")
+            response = {
+                "question": question,
+                "answer": nlp_answer,
+                "intent": nlp_query_type,
+                "entities": {},
+                "nlpProcessed": True,
+                "azureOpenAIUsed": azure_openai_used,
+                "confidence": nlp_confidence,
+                "conversationHistory": nlp_conversation_history,
+                "timestamp": get_last_updated_time(),
+            }
+            return func.HttpResponse(
+                json.dumps(response, default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+        
+        # ===== NEW: PHASE 4 - CHECK FOR DUPLICATE QUESTIONS =====
+        # Step 4: Check if this is a duplicate question in conversation history
+        is_duplicate = False
+        cached_answer = None
+        if nlp_conversation_history and len(nlp_conversation_history) > 1:
+            # Check if same question was asked recently
+            for prev_turn in nlp_conversation_history[:-1]:  # Exclude current turn
+                if prev_turn.get("question", "").lower() == question.lower():
+                    is_duplicate = True
+                    cached_answer = prev_turn.get("answer")
+                    logging.info(f"Duplicate question detected, using cached response")
+                    break
+        
+        if is_duplicate and cached_answer:
+            # Return cached response for duplicate question
+            response = {
+                "question": question,
+                "answer": cached_answer,
+                "intent": nlp_query_type,
+                "entities": {},
+                "nlpProcessed": True,
+                "azureOpenAIUsed": azure_openai_used,
+                "confidence": nlp_confidence,
+                "isDuplicate": True,
+                "conversationHistory": nlp_conversation_history,
+                "timestamp": get_last_updated_time(),
+            }
+            return func.HttpResponse(
+                json.dumps(response, default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+        
+        # ===== PHASE 5 - USE NLP RESULTS TO GUIDE REASONING ENGINE =====
+        # Step 5: Parse query using enhanced intent parser (for backward compatibility)
+        intent_parser = EnhancedIntentParser()
+        query_type, extracted_entities = intent_parser.parse_query(question)
+        
+        # Override with NLP results if confidence is high
+        if nlp_confidence > 0.8:
+            query_type = nlp_query_type
+            extracted_entities = nlp_scope_value or extracted_entities
+            logging.info(f"Using NLP classification (confidence={nlp_confidence})")
+        
+        # Step 6: Check for missing context using clarification engine
+        clarification_engine = ClarificationEngine()
+        has_missing, next_step, clarification_data = clarification_engine.detect_missing_context(
+            query_type=query_type,
+            extracted_entities=extracted_entities,
+            detail_records=detail_records
+        )
+        
+        # Step 7: If context is missing, return clarification response
+        if has_missing:
+            logging.info(f"Missing context detected: {next_step}")
+            
+            # Build clarification response with data-driven options
+            response = {
+                "question": question,
+                "requiresClarification": True,
+                "clarificationNeeded": {
+                    "nextStep": next_step,
+                    "clarificationData": clarification_data,
+                },
+                "intent": query_type,
+                "extractedEntities": extracted_entities,
+                "nlpProcessed": True,
+                "azureOpenAIUsed": azure_openai_used,
+                "confidence": nlp_confidence,
+                "conversationHistory": nlp_conversation_history,
+                "timestamp": get_last_updated_time(),
+            }
+            
+            return func.HttpResponse(
+                json.dumps(response, default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+        
+        # Step 8: Context is complete, process query through reasoning engine
+        engine = ReasoningEngine()
+        answer = engine.process_query(question, detail_records)
+        
+        # Extract entities for response
+        entities = {
+            "location": engine.extractor.extract_location(question),
+            "material_id": engine.extractor.extract_material_id(question),
+            "material_group": engine.extractor.extract_material_group(question),
+            "supplier": engine.extractor.extract_supplier(question),
+            "comparison_pair": engine.extractor.extract_comparison_pair(question),
+        }
+        
+        intent = engine.classifier.classify(question)
+        
+        # ===== NEW: BUILD RESPONSE WITH NLP METADATA =====
+        # Build response with NLP metadata included
         response = {
             "question": question,
             "answer": answer,
-            "queryType": query_type,
-            "answerMode": answer_mode,
-            "scopeType": scope_type,
-            "scopeValue": scope_value,
-            "aiInsight": context.get("aiInsight"),
-            "rootCause": context.get("rootCause"),
-            "recommendedActions": context.get("recommendedActions", []),
-            "planningHealth": context.get("planningHealth"),
-            "dataMode": context.get("dataMode", "cached"),
-            "lastRefreshedAt": context.get("lastRefreshedAt"),
-            "supportingMetrics": {
-                "changedRecordCount": context.get("changedRecordCount"),
-                "totalRecords": context.get("totalRecords"),
-                "trendDelta": context.get("trendDelta"),
-                "planningHealth": context.get("planningHealth"),
-            },
-            "contextUsed": context_used,
-            "explainability": explainability,
-            "suggestedActions": _build_suggested_actions(question, context),
-            "followUpQuestions": _build_follow_ups(question, context),
+            "intent": intent,
+            "entities": entities,
+            "dataMode": "reasoning",
+            "requiresClarification": False,
+            # NEW: NLP metadata
+            "nlpProcessed": True,
+            "nlpIntent": nlp_query_type,
+            "scopeType": nlp_scope_type,  # Include scope type in response
+            "scopeValue": nlp_scope_value,  # Include scope value in response
+            "nlpScopeType": nlp_scope_type,
+            "nlpScopeValue": nlp_scope_value,
+            "nlpConfidence": nlp_confidence,
+            "confidence": nlp_confidence,  # Also include as confidence for compatibility
+            "azureOpenAIUsed": azure_openai_used,  # Track if Azure OpenAI was used
+            "conversationHistory": nlp_conversation_history,
+            "timestamp": get_last_updated_time(),
         }
         
-        # Add investigate mode fields
-        if answer_mode == "investigate" and scoped_metrics:
-            response["investigateMode"] = {
-                "filteredRecordsCount": scoped_metrics.get("filteredRecordsCount"),
-                "scopedContributionBreakdown": scoped_metrics.get("scopedContributionBreakdown"),
-                "scopedDrivers": scoped_metrics.get("scopedDrivers"),
-                "topContributingRecords": scoped_metrics.get("topContributingRecords"),
-                "scopeType": scope_type,
-                "scopeValue": scope_value,
-            }
-        
-        # Add optional fields for specific query types
-        if query_type == "comparison":
-            response["comparisonMetrics"] = _build_comparison_metrics(context, scope_type, scope_value)
-        elif query_type == "supplier_by_location":
-            response["supplierMetrics"] = _build_supplier_metrics(context, scope_value)
-        elif query_type == "record_detail":
-            response["recordComparison"] = _build_record_comparison(context, scope_type, scope_value)
+        # Add context if available
+        if context:
+            response["contextUsed"] = [k for k, v in context.items() if v is not None]
+            response["aiInsight"] = context.get("aiInsight")
+            response["rootCause"] = context.get("rootCause")
+            response["recommendedActions"] = context.get("recommendedActions", [])
+            response["planningHealth"] = context.get("planningHealth")
         
         return func.HttpResponse(
             json.dumps(response, default=str),
             mimetype="application/json",
             status_code=200,
         )
-
-    # --- Cached snapshot path ---
-    snap = load_snapshot()
-    if not snap:
-        return _error("No cached snapshot available. Run daily-refresh to load data from Blob Storage.", 404)
     
-    # NEW: Extract scope and determine answer mode
-    scope_type, scope_value = _extract_scope(question)
-    query_type = _classify_question(question)
-    answer_mode = _determine_answer_mode(query_type, scope_type)
-    
-    # Compute scoped metrics if needed
-    scoped_metrics = None
-    if answer_mode == "investigate" and not isinstance(scope_value, list):
-        scoped_metrics = _compute_scoped_metrics(
-            snap.get("detailRecords", []),
-            scope_type,
-            scope_value
-        )
-    
-    # Generate answer with new logic
-    answer = _generate_answer_from_context(
-        question, snap, answer_mode, scope_type, scope_value, scoped_metrics
-    )
-    
-    explainability = _build_explainability(snap, question)
-    
-    response = {
-        "question": question,
-        "answer": answer,
-        "queryType": query_type,
-        "answerMode": answer_mode,
-        "scopeType": scope_type,
-        "scopeValue": scope_value,
-        "aiInsight": snap.get("aiInsight"),
-        "rootCause": snap.get("rootCause"),
-        "recommendedActions": snap.get("recommendedActions", []),
-        "alerts": snap.get("alerts"),
-        "drivers": snap.get("drivers"),
-        "planningHealth": snap.get("planningHealth"),
-        "dataMode": "blob",
-        "lastRefreshedAt": snap.get("lastRefreshedAt"),
-        "supportingMetrics": {
-            "changedRecordCount": snap.get("changedRecordCount"),
-            "totalRecords": snap.get("totalRecords"),
-            "trendDelta": snap.get("trendDelta"),
-            "planningHealth": snap.get("planningHealth"),
-        },
-        "contextUsed": ["aiInsight", "rootCause", "planningHealth", "drivers"],
-        "explainability": explainability,
-        "suggestedActions": _build_suggested_actions(question, snap),
-        "followUpQuestions": _build_follow_ups(question, snap),
-    }
-    
-    # Add investigate mode fields
-    if answer_mode == "investigate" and scoped_metrics:
-        response["investigateMode"] = {
-            "filteredRecordsCount": scoped_metrics.get("filteredRecordsCount"),
-            "scopedContributionBreakdown": scoped_metrics.get("scopedContributionBreakdown"),
-            "scopedDrivers": scoped_metrics.get("scopedDrivers"),
-            "topContributingRecords": scoped_metrics.get("topContributingRecords"),
-            "scopeType": scope_type,
-            "scopeValue": scope_value,
-        }
-    
-    # Add optional fields for specific query types
-    if query_type == "comparison":
-        response["comparisonMetrics"] = _build_comparison_metrics(snap, scope_type, scope_value)
-    elif query_type == "supplier_by_location":
-        response["supplierMetrics"] = _build_supplier_metrics(snap, scope_value)
-    elif query_type == "record_detail":
-        response["recordComparison"] = _build_record_comparison(snap, scope_type, scope_value)
-    
-    return func.HttpResponse(
-        json.dumps(response, default=str),
-        mimetype="application/json",
-        status_code=200,
-    )
+    except Exception as e:
+        logging.error(f"Query processing failed: {e}", exc_info=True)
+        return _error(f"Query processing failed: {str(e)}", 500)
 
 
 def _generate_answer_from_context(question: str, ctx: dict, answer_mode: str = "summary", scope_type: str = None, scope_value: str = None, scoped_metrics: dict = None) -> str:

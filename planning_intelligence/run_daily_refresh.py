@@ -11,9 +11,29 @@ Can be triggered:
 import logging
 import os
 import sys
+import json
 
 # Allow running standalone
 sys.path.insert(0, os.path.dirname(__file__))
+
+# Load local.settings.json if running standalone (not in Azure Functions)
+def _load_local_settings():
+    """Load environment variables from local.settings.json for local development."""
+    settings_path = os.path.join(os.path.dirname(__file__), "local.settings.json")
+    if os.path.exists(settings_path):
+        try:
+            with open(settings_path, "r") as f:
+                settings = json.load(f)
+                # Load Values section into environment
+                for key, value in settings.get("Values", {}).items():
+                    if key not in os.environ:
+                        os.environ[key] = value
+                logging.info(f"Loaded environment variables from {settings_path}")
+        except Exception as e:
+            logging.warning(f"Could not load local.settings.json: {e}")
+
+# Load settings before importing modules that need them
+_load_local_settings()
 
 from normalizer import normalize_rows
 from filters import filter_records

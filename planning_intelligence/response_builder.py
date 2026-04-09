@@ -460,34 +460,48 @@ def get_suppliers_for_location(records: List[ComparedRecord], location: str) -> 
     Get list of unique suppliers for a location.
     
     Args:
-        records: List of all records (can be dicts or ComparedRecord objects)
+        records: List of all records (should be normalized dicts with locationId and supplier keys)
         location: Location ID to filter by
     
     Returns:
         List of unique supplier IDs/names
     """
-    # Handle both dict and object formats
-    location_records = []
-    for r in records:
-        if isinstance(r, dict):
-            loc = (r.get("locationId") or r.get("LOCID") or r.get("location_id") or "").upper()
+    import logging
+    
+    logging.info(f"get_suppliers_for_location called with location={location}, records count={len(records)}")
+    
+    if records and len(records) > 0:
+        first = records[0]
+        if isinstance(first, dict):
+            logging.info(f"First record keys: {list(first.keys())}")
+            logging.info(f"First record locationId: {first.get('locationId')}, supplier: {first.get('supplier')}")
+    
+    # Filter by location and extract unique suppliers
+    # Assumes records are already normalized with locationId and supplier keys
+    suppliers = set()
+    matched_count = 0
+    
+    for record in records:
+        if isinstance(record, dict):
+            loc = (record.get("locationId") or "").upper()
+            supplier = record.get("supplier")
         else:
-            loc = (getattr(r, 'location_id', '') or "").upper()
+            # Fallback for non-dict objects
+            loc = (getattr(record, 'location_id', '') or "").upper()
+            supplier = getattr(record, 'supplier', None)
         
         if loc == (location or "").upper():
-            location_records.append(r)
+            matched_count += 1
+            if supplier:
+                suppliers.add(supplier)
     
-    suppliers = set()
-    for r in location_records:
-        if isinstance(r, dict):
-            supplier = r.get("supplier") or r.get("LOCFR") or r.get("supplier_current")
-        else:
-            supplier = getattr(r, 'supplier_current', None) or getattr(r, 'supplier', None)
-        
-        if supplier:
-            suppliers.add(supplier)
+    logging.info(f"get_suppliers_for_location: location={location}, found {matched_count} records for this location")
     
-    return sorted(list(suppliers))
+    result = sorted(list(suppliers))
+    
+    logging.info(f"get_suppliers_for_location: found {len(result)} unique suppliers: {result}")
+    
+    return result
 
 
 def compute_supplier_metrics(records: List[ComparedRecord], location: str, supplier: str) -> dict:

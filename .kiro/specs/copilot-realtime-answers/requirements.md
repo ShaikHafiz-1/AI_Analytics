@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Current Copilot answers feel precomputed, generic, and repetitive. Even when grounded in real data, they don't feel like dynamic analysis. Users perceive answers as dashboard summaries rather than targeted responses to their specific questions.
+Current Copilot answers feel precomputed, generic, and repetitive. Even when grounded in real data, they don't feel like dynamic analysis. Users perceive answers as dashboard summaries rather than targeted responses to their specific questions. Additionally, the system lacks intelligent understanding of user intent and cannot guide users through incomplete queries.
 
 ### Current Issues
 - Answers use global dashboard metrics regardless of question specificity
@@ -11,6 +11,10 @@ Current Copilot answers feel precomputed, generic, and repetitive. Even when gro
 - All answer templates sound similar, lacking variety
 - No distinction between data freshness and answer specificity
 - Traceability prompts don't compute scoped metrics
+- System cannot understand user intent or extract entities intelligently
+- No interactive guidance when user queries lack required context
+- LLM is not integrated for natural language understanding and response generation
+- MCP is not used as single source of truth for context and schema
 
 ## Goals
 
@@ -19,6 +23,11 @@ Current Copilot answers feel precomputed, generic, and repetitive. Even when gro
 3. **Vary response style** - Different templates for different question types
 4. **Maintain determinism** - Keep analytics as source of truth, no invented numbers
 5. **Preserve trust** - Keep provenance visible, distinguish data freshness from answer quality
+6. **Add intelligent intent understanding** - Use Azure OpenAI to classify intent and extract entities
+7. **Enable interactive guidance** - Guide users through incomplete queries with data-driven options
+8. **Implement hybrid architecture** - Use MCP as single source of truth, Azure OpenAI for intelligence layer
+9. **Enforce SAP domain logic** - Prevent hallucination by validating against SAP schema
+10. **Generate conversational responses** - Use Azure OpenAI to create natural language responses grounded in deterministic analysis
 
 ## User Stories
 
@@ -74,6 +83,39 @@ Current Copilot answers feel precomputed, generic, and repetitive. Even when gro
 - Answer shows: top 5 records with highest impact, sorted by delta
 - Answer includes: location, material, change type, risk level
 - Answer feels like targeted drill-down, not generic list
+
+### Story 6: Intelligent Intent Understanding
+**As a** planner  
+**I want to** ask questions in natural language  
+**So that** I don't need to learn special syntax
+
+**Acceptance Criteria:**
+- System understands various phrasings of the same question
+- System extracts entities (locations, suppliers, materials) automatically
+- System classifies intent (comparison, root cause, why-not, etc.)
+- System responds with natural language, not templated text
+
+### Story 7: Interactive Guidance for Incomplete Queries
+**As a** planner  
+**I want to** get guided through incomplete queries  
+**So that** I can provide necessary context step-by-step
+
+**Acceptance Criteria:**
+- When query lacks required context, system asks for it
+- System provides data-driven options (from actual data, not hardcoded)
+- System remembers my selections across conversation turns
+- System only proceeds to analysis after context is complete
+
+### Story 8: Conversational Responses
+**As a** planner  
+**I want to** receive responses that feel like talking to an analyst  
+**So that** I trust the insights and feel engaged
+
+**Acceptance Criteria:**
+- Responses are natural language, not bullet points
+- Responses include decision, key metrics, drivers, risk profile, actions
+- Responses are grounded in data (no hallucination)
+- Responses feel intelligent and enterprise-grade
 
 ## Functional Requirements
 
@@ -132,6 +174,92 @@ Response includes:
 - `scopedDrivers`: Top drivers for scoped records
 - `topContributingRecords`: Top 5 records by impact in scope
 - `comparisonMetrics`: If applicable (for comparison questions)
+
+### FR10: Azure OpenAI Integration (Intent & Entity Extraction)
+- Use Azure OpenAI ONLY for:
+  - Intent classification (what type of question is this?)
+  - Entity extraction (what entities are mentioned?)
+  - Clarification prompts (what context is missing?)
+  - Natural language response generation (how to phrase the answer?)
+- DO NOT use Azure OpenAI for:
+  - Calculations or aggregations
+  - Accessing raw blob data
+  - Computing metrics
+  - Making business decisions
+
+### FR11: MCP as Single Source of Truth
+- MCP must provide complete context including:
+  - **Query Context**: intent, entities (LOCID, GSCEQUIPCAT, PRDID, LOCFR), selectedContext
+  - **Analytics Context**: planningHealth, forecastNew/Old, trendDelta, changedRecordCount, totalRecords, drivers, riskSummary, supplierSummary, materialGroupSummary, datacenterSummary, detailRecords (filtered)
+  - **Provenance**: dataSource, lastRefreshedAt, blobFileNamesUsed, recordsAnalyzed
+  - **SAP Schema**: sapFieldDictionary with all valid SAP fields and their meanings
+  - **Semantic Mapping**: forecast_change, design_change, supplier_issue, schedule_issue definitions
+
+### FR12: SAP Field Dictionary (Mandatory)
+MCP must include complete SAP field dictionary:
+- LOCID: Location ID
+- PRDID: Material ID
+- GSCEQUIPCAT: Material Group
+- GSCPREVFCSTQTY: Previous Forecast
+- GSCFSCTQTY: Current Forecast
+- FCST_Delta Qty: Forecast Change
+- GSCPREVROJNBD: Previous ROJ
+- GSCCONROJDATE: Current ROJ
+- NBD_DeltaDays: ROJ Shift
+- LOCFR: Supplier
+- GSCPREVSUPLDATE: Previous Supplier Date
+- GSCSUPLDATE: Current Supplier Date
+- Is_SupplierDateMissing: Supplier Missing Flag
+- ZCOIBODVER: BOD Version
+- ZCOIFORMFACT: Form Factor
+- Is_New Demand: New Demand
+- Is_cancelled: Cancelled
+- Risk_Flag: Risk
+
+### FR13: Semantic Mapping (Mandatory)
+MCP must include semantic mapping for domain logic:
+- forecast_change: "GSCFSCTQTY - GSCPREVFCSTQTY"
+- design_change: "ZCOIBODVER changed OR ZCOIFORMFACT changed"
+- supplier_issue: "GSCSUPLDATE changed OR Is_SupplierDateMissing"
+- schedule_issue: "NBD_DeltaDays > 0"
+
+### FR14: Domain Rules (Strict)
+- Composite Key: (LOCID, GSCEQUIPCAT, PRDID)
+- Design Change: TRUE only if BOD change OR Form Factor change (exclude new demand, cancelled)
+- Supplier grouping: LOCFR
+- All computations must follow SAP domain rules strictly
+
+### FR15: Hybrid Architecture Flow
+Strict flow for all queries:
+1. User Query → Azure OpenAI (intent + entity extraction)
+2. Context validation (check missing inputs)
+3. MCP (structured context + SAP schema)
+4. Deterministic Engine (compute results)
+5. MCP (final structured output)
+6. Azure OpenAI (response generation)
+7. UI (display response)
+
+### FR16: Interactive Clarification
+When required context is missing:
+- Detect missing context using ClarificationEngine
+- Generate data-driven options from actual detailRecords
+- Present options to user (never hardcoded values)
+- Track selectedContext across conversation turns
+- Only proceed to reasoning after context is complete
+
+### FR17: Validation Guardrails
+Before final response:
+- Verify fields are valid SAP fields
+- Verify numbers exist in MCP context
+- Prevent hallucination by validating against schema
+- If invalid: regenerate response or return error
+
+### FR18: Response Rules (Strict)
+- NEVER fallback to global summary for scoped query
+- NEVER show "Unknown" supplier if LOCFR exists
+- NEVER output null if data exists
+- ALWAYS use MCP context
+- ALWAYS show decision, key metrics, drivers, risk profile, actions
 
 ## Non-Functional Requirements
 
