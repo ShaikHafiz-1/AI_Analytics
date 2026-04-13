@@ -76,8 +76,9 @@ class TestNLPEndpoint:
     def test_summary_query(self, sample_records):
         """Test summary query processing."""
         question = "What's the planning status?"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -92,8 +93,9 @@ class TestNLPEndpoint:
     def test_root_cause_query(self, sample_records):
         """Test root cause query processing."""
         question = "Why is LOC001 risky?"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -110,8 +112,9 @@ class TestNLPEndpoint:
     def test_comparison_query(self, sample_records):
         """Test comparison query processing."""
         question = "Compare LOC001 vs LOC002"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -125,8 +128,9 @@ class TestNLPEndpoint:
     def test_why_not_query(self, sample_records):
         """Test why-not query processing."""
         question = "Why is LOC002 not risky?"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -143,8 +147,9 @@ class TestNLPEndpoint:
     def test_traceability_query(self, sample_records):
         """Test traceability query processing."""
         question = "Show top contributing records"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -159,8 +164,9 @@ class TestNLPEndpoint:
     def test_out_of_scope_query(self, sample_records):
         """Test out-of-scope question handling."""
         question = "What is your name?"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -174,8 +180,9 @@ class TestNLPEndpoint:
     def test_clarification_needed(self, sample_records):
         """Test clarification needed for ambiguous questions."""
         question = "Tell me a joke"
+        handler = NLPEndpointHandler()
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )
@@ -187,9 +194,10 @@ class TestNLPEndpoint:
     
     def test_multi_turn_conversation(self, sample_records):
         """Test multi-turn conversation support."""
+        handler = NLPEndpointHandler()
         # Turn 1
         question1 = "What's the planning status?"
-        response1 = NLPEndpointHandler.process_question(
+        response1 = handler.process_question(
             question1,
             sample_records
         )
@@ -199,7 +207,7 @@ class TestNLPEndpoint:
         
         # Turn 2 - pass the conversation history from turn 1
         question2 = "Which location has the most changes?"
-        response2 = NLPEndpointHandler.process_question(
+        response2 = handler.process_question(
             question2,
             sample_records,
             response1["conversationHistory"]
@@ -212,7 +220,7 @@ class TestNLPEndpoint:
         
         # Turn 3
         question3 = "Are there design changes?"
-        response3 = NLPEndpointHandler.process_question(
+        response3 = handler.process_question(
             question3,
             sample_records,
             response2["conversationHistory"]
@@ -225,12 +233,13 @@ class TestNLPEndpoint:
     
     def test_conversation_history_limit(self, sample_records):
         """Test that conversation history is limited to last 10 turns."""
+        handler = NLPEndpointHandler()
         history = []
         
         # Create 15 turns
         for i in range(15):
             question = f"What's the status for turn {i}?"
-            response = NLPEndpointHandler.process_question(
+            response = handler.process_question(
                 question,
                 sample_records,
                 history
@@ -244,6 +253,7 @@ class TestNLPEndpoint:
     
     def test_entity_extraction(self, sample_records):
         """Test entity extraction from questions."""
+        handler = NLPEndpointHandler()
         questions_and_entities = [
             ("Why is LOC001 risky?", "LOC001"),
             ("What about LOC002?", "LOC002"),
@@ -252,7 +262,7 @@ class TestNLPEndpoint:
         ]
         
         for question, expected_entity in questions_and_entities:
-            response = NLPEndpointHandler.process_question(
+            response = handler.process_question(
                 question,
                 sample_records
             )
@@ -262,6 +272,7 @@ class TestNLPEndpoint:
     
     def test_response_structure(self, sample_records):
         """Test that all responses have required structure."""
+        handler = NLPEndpointHandler()
         questions = [
             "What's the planning status?",
             "Why is LOC001 risky?",
@@ -272,7 +283,7 @@ class TestNLPEndpoint:
         ]
         
         for question in questions:
-            response = NLPEndpointHandler.process_question(
+            response = handler.process_question(
                 question,
                 sample_records
             )
@@ -289,9 +300,10 @@ class TestNLPEndpoint:
     
     def test_empty_records(self):
         """Test handling of empty records."""
+        handler = NLPEndpointHandler()
         question = "What's the planning status?"
         
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             []
         )
@@ -303,11 +315,12 @@ class TestNLPEndpoint:
     def test_performance(self, sample_records):
         """Test that response generation is fast."""
         import time
+        handler = NLPEndpointHandler()
         
         question = "Why is LOC001 risky?"
         
         start = time.time()
-        response = NLPEndpointHandler.process_question(
+        response = handler.process_question(
             question,
             sample_records
         )

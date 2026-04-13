@@ -1,0 +1,278 @@
+[
+  {
+    "prompt": "What's the current planning health status?",
+    "type": "health",
+    "answer": null,
+    "error": "generate_health_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the planning health?",
+    "type": "health",
+    "answer": null,
+    "error": "generate_health_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "Is planning healthy?",
+    "type": "health",
+    "answer": null,
+    "error": "generate_health_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the health score?",
+    "type": "health",
+    "answer": null,
+    "error": "generate_health_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "How is planning health?",
+    "type": "health",
+    "answer": null,
+    "error": "generate_health_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the forecast?",
+    "type": "forecast",
+    "answer": null,
+    "error": "generate_forecast_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What's the trend?",
+    "type": "forecast",
+    "answer": null,
+    "error": "generate_forecast_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What's the delta?",
+    "type": "forecast",
+    "answer": null,
+    "error": "generate_forecast_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What's the forecast trend?",
+    "type": "forecast",
+    "answer": null,
+    "error": "generate_forecast_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What units are forecasted?",
+    "type": "forecast",
+    "answer": null,
+    "error": "generate_forecast_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What are the top risks?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What are the risks?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the main issue?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the biggest risk?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "Are there any risks?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's risky?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's dangerous?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the high-risk situation?",
+    "type": "risk",
+    "answer": null,
+    "error": "generate_risk_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "How many records have changed?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What changes have occurred?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's changed?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "How many changes?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What quantity changes?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What design changes?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What supplier changes?",
+    "type": "change",
+    "answer": null,
+    "error": "generate_change_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the ROJ?",
+    "type": "schedule",
+    "answer": null,
+    "error": "generate_schedule_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "List suppliers for CYS20_F01C01",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Which materials are affected?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Which suppliers at CYS20_F01C01 have design changes?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What suppliers are involved?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What materials are involved?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "List materials for DSM18_F01C01",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Which locations are affected?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What groups are affected?",
+    "type": "entity",
+    "answer": null,
+    "error": "generate_entity_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Compare CYS20_F01C01 vs DSM18_F01C01",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "What's the difference between CYS20_F01C01 and DSM18_F01C01?",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Compare DSM18_F01C01 versus CYS20_F01C01",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "CYS20_F01C01 vs DSM18_F01C01",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Difference between CYS20_F01C01 and DSM18_F01C01",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Compare locations CYS20_F01C01 and DSM18_F01C01",
+    "type": "comparison",
+    "answer": null,
+    "error": "generate_comparison_answer() missing 2 required positional arguments: 'context' and 'question'"
+  },
+  {
+    "prompt": "Which supplier has the most impact?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What is the impact?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "Which materials are most affected?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the impact on suppliers?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "Which supplier has the most changes?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  },
+  {
+    "prompt": "What's the consequence of changes?",
+    "type": "impact",
+    "answer": null,
+    "error": "generate_impact_answer() missing 1 required positional argument: 'context'"
+  }
+]

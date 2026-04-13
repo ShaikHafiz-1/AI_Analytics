@@ -27,8 +27,8 @@ from phase1_core_functions import (
     AnswerModeDecider,
     ScopedMetricsComputer
 )
-from phase2_answer_templates import AnswerTemplateRouter
-from phase3_integration import IntegratedQueryProcessor
+from phase2_answer_templates import AnswerTemplates
+from phase3_integration import Phase3Integration
 
 # Import Azure OpenAI integration
 try:
@@ -160,6 +160,8 @@ class NLPEndpointHandler:
                 return response
             
             # Try to use Azure OpenAI for intent classification and entity extraction
+            context = {"azureOpenAIUsed": False}
+            
             if self.use_azure_openai:
                 try:
                     logging.info(f"Using Azure OpenAI for question: {question}")
@@ -191,10 +193,25 @@ class NLPEndpointHandler:
                     confidence = intent_result.get("confidence", 0.8)
                     response["azureOpenAIUsed"] = True
                     
+                    # Build context from extracted entities
+                    context = {
+                        "extractedEntities": entities,
+                        "confidence": confidence,
+                        "azureOpenAIUsed": True
+                    }
+                    
                     logging.info(f"Azure OpenAI result: intent={query_type}, confidence={confidence}")
                     
+                except TimeoutError:
+                    logging.error("Azure OpenAI timeout")
+                    context = {"azureOpenAIUsed": False}
+                    # Fall back to rule-based classification
+                    query_type = QuestionClassifier.classify_question(question)
+                    scope_type, scope_value = ScopeExtractor.extract_scope(question)
+                    confidence = 0.75
                 except Exception as e:
                     logging.warning(f"Azure OpenAI failed, falling back to rule-based: {e}")
+                    context = {"azureOpenAIUsed": False}
                     # Fall back to rule-based classification
                     query_type = QuestionClassifier.classify_question(question)
                     scope_type, scope_value = ScopeExtractor.extract_scope(question)
@@ -218,15 +235,35 @@ class NLPEndpointHandler:
                 # Global metrics
                 metrics = self._compute_global_metrics(detail_records)
             
-            # Generate response
-            answer = AnswerTemplateRouter.generate_answer(
-                query_type=query_type,
-                answer_mode=answer_mode,
-                entity=scope_value,
-                metrics=metrics,
-                scope_type=scope_type,
-                question=question
-            )
+            # Generate response using Phase 2 templates
+            if query_type == "comparison":
+                entities = ScopeExtractor.extract_comparison_entities(question) if hasattr(ScopeExtractor, 'extract_comparison_entities') else [scope_value] if scope_value else []
+                if len(entities) >= 2:
+                    scoped_metrics_dict = {}
+                    for entity in entities[:2]:
+                        entity_metrics = ScopedMetricsComputer.compute_scoped_metrics(
+                            detail_records, scope_type or "location", entity
+                        )
+                        scoped_metrics_dict[entity] = entity_metrics
+                    answer = AnswerTemplates.generate_comparison_answer(
+                        question=question, ctx=context, entities=entities[:2], scoped_metrics=scoped_metrics_dict
+                    )
+                else:
+                    answer = AnswerTemplates.generate_summary_answer(question=question, ctx=context)
+            elif query_type == "root_cause" and scope_value and metrics:
+                answer = AnswerTemplates.generate_root_cause_answer(
+                    question=question, ctx=context, scope_type=scope_type, scope_value=scope_value, scoped_metrics=metrics
+                )
+            elif query_type == "why_not" and scope_value and metrics:
+                answer = AnswerTemplates.generate_why_not_answer(
+                    question=question, ctx=context, scope_type=scope_type, scope_value=scope_value, scoped_metrics=metrics
+                )
+            elif query_type == "traceability":
+                answer = AnswerTemplates.generate_traceability_answer(
+                    question=question, ctx=context, scoped_metrics=metrics
+                )
+            else:
+                answer = AnswerTemplates.generate_summary_answer(question=question, ctx=context)
             
             # Update response
             response["answer"] = answer
@@ -364,11 +401,15 @@ def handle_nlp_query(req: func.HttpRequest) -> func.HttpResponse:
         # Parse request
         body = req.get_json()
     except ValueError:
-        return func.HttpResponse(
+        response = func.HttpResponse(
             json.dumps({"error": "Invalid JSON body"}),
             mimetype="application/json",
             status_code=400
         )
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
     
     # Extract parameters
     question = body.get("question", "").strip()
@@ -377,29 +418,41 @@ def handle_nlp_query(req: func.HttpRequest) -> func.HttpResponse:
     
     # Validate
     if not question:
-        return func.HttpResponse(
+        response = func.HttpResponse(
             json.dumps({"error": "Question is required"}),
             mimetype="application/json",
             status_code=400
         )
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
     
     if not detail_records:
-        return func.HttpResponse(
+        response = func.HttpResponse(
             json.dumps({"error": "detail_records is required"}),
             mimetype="application/json",
             status_code=400
         )
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
     
     # Process question
-    response = NLPEndpointHandler.process_question(
+    response_data = NLPEndpointHandler.process_question(
         question,
         detail_records,
         conversation_history
     )
     
-    # Return response
-    return func.HttpResponse(
-        json.dumps(response, default=str),
+    # Return response with CORS headers
+    response = func.HttpResponse(
+        json.dumps(response_data, default=str),
         mimetype="application/json",
         status_code=200
     )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response

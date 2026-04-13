@@ -1,0 +1,370 @@
+[
+  {
+    "prompt": "What's the current planning health status?",
+    "category": "health",
+    "classification": "health",
+    "answer": "{'answer': 'Planning health is 37/100 (Critical). 3,777 of 13,148 records have changed (28.7%). Primary drivers: Design changes (1926), Supplier changes (1499).', 'supportingMetrics': {'planningHealth': 37, 'status': 'Critical', 'changedRecordCount': 3777, 'totalRecords': 13148, 'designChanges': 1926, 'supplierChanges': 1499}}",
+    "response_time_ms": 7.41,
+    "error": null
+  },
+  {
+    "prompt": "What's the planning health?",
+    "category": "health",
+    "classification": "health",
+    "answer": "{'answer': 'Planning health is 37/100 (Critical). 3,777 of 13,148 records have changed (28.7%). Primary drivers: Design changes (1926), Supplier changes (1499).', 'supportingMetrics': {'planningHealth': 37, 'status': 'Critical', 'changedRecordCount': 3777, 'totalRecords': 13148, 'designChanges': 1926, 'supplierChanges': 1499}}",
+    "response_time_ms": 3.78,
+    "error": null
+  },
+  {
+    "prompt": "Is planning healthy?",
+    "category": "health",
+    "classification": "health",
+    "answer": "{'answer': 'Planning health is 37/100 (Critical). 3,777 of 13,148 records have changed (28.7%). Primary drivers: Design changes (1926), Supplier changes (1499).', 'supportingMetrics': {'planningHealth': 37, 'status': 'Critical', 'changedRecordCount': 3777, 'totalRecords': 13148, 'designChanges': 1926, 'supplierChanges': 1499}}",
+    "response_time_ms": 7.62,
+    "error": null
+  },
+  {
+    "prompt": "What's the health score?",
+    "category": "health",
+    "classification": "health",
+    "answer": "{'answer': 'Planning health is 37/100 (Critical). 3,777 of 13,148 records have changed (28.7%). Primary drivers: Design changes (1926), Supplier changes (1499).', 'supportingMetrics': {'planningHealth': 37, 'status': 'Critical', 'changedRecordCount': 3777, 'totalRecords': 13148, 'designChanges': 1926, 'supplierChanges': 1499}}",
+    "response_time_ms": 2.45,
+    "error": null
+  },
+  {
+    "prompt": "How is planning health?",
+    "category": "health",
+    "classification": "health",
+    "answer": "{'answer': 'Planning health is 37/100 (Critical). 3,777 of 13,148 records have changed (28.7%). Primary drivers: Design changes (1926), Supplier changes (1499).', 'supportingMetrics': {'planningHealth': 37, 'status': 'Critical', 'changedRecordCount': 3777, 'totalRecords': 13148, 'designChanges': 1926, 'supplierChanges': 1499}}",
+    "response_time_ms": 2.14,
+    "error": null
+  },
+  {
+    "prompt": "What's the forecast?",
+    "category": "forecast",
+    "classification": "forecast",
+    "answer": "{'answer': '1259 records have forecast quantity changes. Total delta: -400 units. Average delta: -0.3 units.', 'supportingMetrics': {'qtyChangedCount': 1259, 'totalQtyDelta': -400, 'averageQtyDelta': -0.3, 'qtyDeltaRecords': 1259}}",
+    "response_time_ms": 2.5,
+    "error": null
+  },
+  {
+    "prompt": "What's the trend?",
+    "category": "forecast",
+    "classification": "forecast",
+    "answer": "{'answer': '1259 records have forecast quantity changes. Total delta: -400 units. Average delta: -0.3 units.', 'supportingMetrics': {'qtyChangedCount': 1259, 'totalQtyDelta': -400, 'averageQtyDelta': -0.3, 'qtyDeltaRecords': 1259}}",
+    "response_time_ms": 4.48,
+    "error": null
+  },
+  {
+    "prompt": "What's the delta?",
+    "category": "forecast",
+    "classification": "forecast",
+    "answer": "{'answer': '1259 records have forecast quantity changes. Total delta: -400 units. Average delta: -0.3 units.', 'supportingMetrics': {'qtyChangedCount': 1259, 'totalQtyDelta': -400, 'averageQtyDelta': -0.3, 'qtyDeltaRecords': 1259}}",
+    "response_time_ms": 2.09,
+    "error": null
+  },
+  {
+    "prompt": "What's the forecast trend?",
+    "category": "forecast",
+    "classification": "forecast",
+    "answer": "{'answer': '1259 records have forecast quantity changes. Total delta: -400 units. Average delta: -0.3 units.', 'supportingMetrics': {'qtyChangedCount': 1259, 'totalQtyDelta': -400, 'averageQtyDelta': -0.3, 'qtyDeltaRecords': 1259}}",
+    "response_time_ms": 3.44,
+    "error": null
+  },
+  {
+    "prompt": "What units are forecasted?",
+    "category": "forecast",
+    "classification": "forecast",
+    "answer": "{'answer': '1259 records have forecast quantity changes. Total delta: -400 units. Average delta: -0.3 units.', 'supportingMetrics': {'qtyChangedCount': 1259, 'totalQtyDelta': -400, 'averageQtyDelta': -0.3, 'qtyDeltaRecords': 1259}}",
+    "response_time_ms": 1.74,
+    "error": null
+  },
+  {
+    "prompt": "What are the top risks?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.05,
+    "error": null
+  },
+  {
+    "prompt": "What are the risks?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.03,
+    "error": null
+  },
+  {
+    "prompt": "What's the main issue?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.05,
+    "error": null
+  },
+  {
+    "prompt": "What's the biggest risk?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.04,
+    "error": null
+  },
+  {
+    "prompt": "Are there any risks?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.01,
+    "error": null
+  },
+  {
+    "prompt": "What's risky?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.02,
+    "error": null
+  },
+  {
+    "prompt": "What's dangerous?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.01,
+    "error": null
+  },
+  {
+    "prompt": "What's the high-risk situation?",
+    "category": "risk",
+    "classification": "risk",
+    "answer": "{'answer': 'Risk level is CRITICAL. Highest risk type: Design + Supplier Change Risk. 3,208 high-risk records out of 13,148 total (24.4%). Breakdown: Design Change Risk (1668), Supplier Change Risk (1241), Design + Supplier Change Risk (258), High Demand Spike (41).', 'supportingMetrics': {'riskLevel': 'CRITICAL', 'highestRiskLevel': 'Design + Supplier Change Risk', 'highRiskCount': 3208, 'totalRecords': 13148, 'percentHighRisk': 24.39914815941588, 'riskBreakdown': {'Design Change Risk': 1668, 'Supplier Change Risk': 1241, 'Design + Supplier Change Risk': 258, 'High Demand Spike': 41}}}",
+    "response_time_ms": 0.01,
+    "error": null
+  },
+  {
+    "prompt": "How many records have changed?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 3.56,
+    "error": null
+  },
+  {
+    "prompt": "What changes have occurred?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 1.72,
+    "error": null
+  },
+  {
+    "prompt": "What's changed?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 1.54,
+    "error": null
+  },
+  {
+    "prompt": "How many changes?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 1.37,
+    "error": null
+  },
+  {
+    "prompt": "What quantity changes?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 2.58,
+    "error": null
+  },
+  {
+    "prompt": "What design changes?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 1.85,
+    "error": null
+  },
+  {
+    "prompt": "What supplier changes?",
+    "category": "change",
+    "classification": "change",
+    "answer": "{'answer': '3,777 records have changed out of 13,148 total (28.7%). Breakdown: Design (1926), Supplier (1499), Quantity (4725).', 'supportingMetrics': {'changedRecordCount': 3777, 'totalRecords': 13148, 'percentChanged': 28.72680255552175, 'designChanges': 1926, 'supplierChanges': 1499, 'quantityChanges': 4725}}",
+    "response_time_ms": 5.5,
+    "error": null
+  },
+  {
+    "prompt": "What's the ROJ?",
+    "category": "schedule",
+    "classification": "schedule",
+    "answer": "{'answer': '0 records have ROJ schedule changes. ', 'supportingMetrics': {'roiChangedCount': 0, 'averageRoiDelta': 0, 'roiDeltaRecords': 0}}",
+    "response_time_ms": 2.08,
+    "error": null
+  },
+  {
+    "prompt": "List suppliers for CYS20_F01C01",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Location CYS20_F01C01: 15 records. Suppliers: 10_AMER, 130_AMER, 1690_AMER, 210_AMER, 320_AMER. Materials: ACC, AHF, AHU, ATS, BAS. Changed: 0.', 'supportingMetrics': {'location': 'CYS20_F01C01', 'recordCount': 15, 'suppliers': ['10_AMER', '130_AMER', '1690_AMER', '210_AMER', '320_AMER', '530_AMER', '625_AMER', '70_AMER'], 'materials': ['ACC', 'AHF', 'AHU', 'ATS', 'BAS', 'BUS', 'CDU', 'CRAH', 'EPMS', 'GEN', 'HAC', 'LVS', 'MVS', 'MVSXRM', 'UPS'], 'changedCount': 0}}",
+    "response_time_ms": 1.47,
+    "error": null
+  },
+  {
+    "prompt": "Which materials are affected?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Top affected suppliers: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes), 540_AMER (233 changes), 40_EMEA (168 changes). Top affected materials: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes), MVS (318 changes), BUS (316 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357), ('540_AMER', 233), ('40_EMEA', 168)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319), ('MVS', 318), ('BUS', 316)]}}",
+    "response_time_ms": 3.69,
+    "error": null
+  },
+  {
+    "prompt": "Which suppliers at CYS20_F01C01 have design changes?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Location CYS20_F01C01: 15 records. Suppliers: 10_AMER, 130_AMER, 1690_AMER, 210_AMER, 320_AMER. Materials: ACC, AHF, AHU, ATS, BAS. Changed: 0.', 'supportingMetrics': {'location': 'CYS20_F01C01', 'recordCount': 15, 'suppliers': ['10_AMER', '130_AMER', '1690_AMER', '210_AMER', '320_AMER', '530_AMER', '625_AMER', '70_AMER'], 'materials': ['ACC', 'AHF', 'AHU', 'ATS', 'BAS', 'BUS', 'CDU', 'CRAH', 'EPMS', 'GEN', 'HAC', 'LVS', 'MVS', 'MVSXRM', 'UPS'], 'changedCount': 0}}",
+    "response_time_ms": 1.89,
+    "error": null
+  },
+  {
+    "prompt": "What suppliers are involved?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Top affected suppliers: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes), 540_AMER (233 changes), 40_EMEA (168 changes). Top affected materials: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes), MVS (318 changes), BUS (316 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357), ('540_AMER', 233), ('40_EMEA', 168)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319), ('MVS', 318), ('BUS', 316)]}}",
+    "response_time_ms": 5.08,
+    "error": null
+  },
+  {
+    "prompt": "What materials are involved?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Top affected suppliers: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes), 540_AMER (233 changes), 40_EMEA (168 changes). Top affected materials: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes), MVS (318 changes), BUS (316 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357), ('540_AMER', 233), ('40_EMEA', 168)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319), ('MVS', 318), ('BUS', 316)]}}",
+    "response_time_ms": 2.78,
+    "error": null
+  },
+  {
+    "prompt": "List materials for DSM18_F01C01",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Location DSM18_F01C01: 15 records. Suppliers: 110_AMER, 1690_AMER, 170_AMER, 210_AMER, 530_AMER. Materials: ACC, AHF, AHU, ATS, BAS. Changed: 0.', 'supportingMetrics': {'location': 'DSM18_F01C01', 'recordCount': 15, 'suppliers': ['110_AMER', '1690_AMER', '170_AMER', '210_AMER', '530_AMER', '540_AMER', '625_AMER', '70_AMER'], 'materials': ['ACC', 'AHF', 'AHU', 'ATS', 'BAS', 'BUS', 'CDU', 'CRAH', 'EPMS', 'GEN', 'HAC', 'LVS', 'MVS', 'MVSXRM', 'UPS'], 'changedCount': 0}}",
+    "response_time_ms": 1.39,
+    "error": null
+  },
+  {
+    "prompt": "Which locations are affected?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Top affected suppliers: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes), 540_AMER (233 changes), 40_EMEA (168 changes). Top affected materials: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes), MVS (318 changes), BUS (316 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357), ('540_AMER', 233), ('40_EMEA', 168)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319), ('MVS', 318), ('BUS', 316)]}}",
+    "response_time_ms": 3.35,
+    "error": null
+  },
+  {
+    "prompt": "What groups are affected?",
+    "category": "entity",
+    "classification": "entity",
+    "answer": "{'answer': 'Top affected suppliers: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes), 540_AMER (233 changes), 40_EMEA (168 changes). Top affected materials: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes), MVS (318 changes), BUS (316 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357), ('540_AMER', 233), ('40_EMEA', 168)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319), ('MVS', 318), ('BUS', 316)]}}",
+    "response_time_ms": 2.96,
+    "error": null
+  },
+  {
+    "prompt": "Compare CYS20_F01C01 vs DSM18_F01C01",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: CYS20_F01C01 vs DSM18_F01C01. CYS20_F01C01: 15 records, 0 changed. DSM18_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'CYS20_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'DSM18_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 5.56,
+    "error": null
+  },
+  {
+    "prompt": "What's the difference between CYS20_F01C01 and DSM18_F01C01?",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: CYS20_F01C01 vs DSM18_F01C01. CYS20_F01C01: 15 records, 0 changed. DSM18_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'CYS20_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'DSM18_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 2.76,
+    "error": null
+  },
+  {
+    "prompt": "Compare DSM18_F01C01 versus CYS20_F01C01",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: DSM18_F01C01 vs CYS20_F01C01. DSM18_F01C01: 15 records, 0 changed. CYS20_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'DSM18_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'CYS20_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 3.01,
+    "error": null
+  },
+  {
+    "prompt": "CYS20_F01C01 vs DSM18_F01C01",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: CYS20_F01C01 vs DSM18_F01C01. CYS20_F01C01: 15 records, 0 changed. DSM18_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'CYS20_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'DSM18_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 1.49,
+    "error": null
+  },
+  {
+    "prompt": "Difference between CYS20_F01C01 and DSM18_F01C01",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: CYS20_F01C01 vs DSM18_F01C01. CYS20_F01C01: 15 records, 0 changed. DSM18_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'CYS20_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'DSM18_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 7.76,
+    "error": null
+  },
+  {
+    "prompt": "Compare locations CYS20_F01C01 and DSM18_F01C01",
+    "category": "comparison",
+    "classification": "comparison",
+    "answer": "{'answer': 'Comparison: CYS20_F01C01 vs DSM18_F01C01. CYS20_F01C01: 15 records, 0 changed. DSM18_F01C01: 15 records, 0 changed.', 'supportingMetrics': {'location1': 'CYS20_F01C01', 'location1Records': 15, 'location1Changed': 0, 'location2': 'DSM18_F01C01', 'location2Records': 15, 'location2Changed': 0}}",
+    "response_time_ms": 2.81,
+    "error": null
+  },
+  {
+    "prompt": "Which supplier has the most impact?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 3.17,
+    "error": null
+  },
+  {
+    "prompt": "What is the impact?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 2.3,
+    "error": null
+  },
+  {
+    "prompt": "Which materials are most affected?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 5.45,
+    "error": null
+  },
+  {
+    "prompt": "What's the impact on suppliers?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 2.33,
+    "error": null
+  },
+  {
+    "prompt": "Which supplier has the most changes?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 2.19,
+    "error": null
+  },
+  {
+    "prompt": "What's the consequence of changes?",
+    "category": "impact",
+    "classification": "impact",
+    "answer": "{'answer': 'Impact analysis: Top suppliers affected: 9999_AMER (599 changes), 210_AMER (456 changes), 530_AMER (357 changes). Top materials affected: LVS (535 changes), UPS (332 changes), MVSXRM (319 changes).', 'supportingMetrics': {'topSuppliers': [('9999_AMER', 599), ('210_AMER', 456), ('530_AMER', 357)], 'topMaterials': [('LVS', 535), ('UPS', 332), ('MVSXRM', 319)]}}",
+    "response_time_ms": 3.13,
+    "error": null
+  }
+]

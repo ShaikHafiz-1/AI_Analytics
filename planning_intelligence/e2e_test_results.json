@@ -1,0 +1,426 @@
+{
+  "timestamp": "2026-04-13T09:11:29.570704",
+  "total_prompts": 46,
+  "passed": 46,
+  "failed": 0,
+  "by_category": {
+    "health": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "forecast": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "risk": {
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "change": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "schedule": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "entity": {
+      "total": 8,
+      "passed": 8,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "comparison": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "impact": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "pass_rate": 100.0
+    }
+  },
+  "details": [
+    {
+      "prompt": "What's the current planning health status?",
+      "category": "health",
+      "classification": "health",
+      "response": "Planning health is 60/100 (Acceptable). 4 of 6 records have changed (66.7%). Primary drivers: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the planning health?",
+      "category": "health",
+      "classification": "health",
+      "response": "Planning assessment: Acceptable health (60/100). 4 records affected (66.7%). Main change types: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Is planning healthy?",
+      "category": "health",
+      "classification": "health",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the health score?",
+      "category": "health",
+      "classification": "health",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How is planning health?",
+      "category": "health",
+      "classification": "health",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the forecast?",
+      "category": "forecast",
+      "classification": "forecast",
+      "response": "Forecast quantity changes in 2 records. Net delta: 100 units (50.0 avg). Trend: Upward.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the trend?",
+      "category": "forecast",
+      "classification": "forecast",
+      "response": "2 records show quantity forecast updates. Total adjustment: 100 units. Per-record average: 50.0 units.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the delta?",
+      "category": "forecast",
+      "classification": "forecast",
+      "response": "Forecast quantity changes in 2 records. Net delta: 100 units (50.0 avg). Trend: Upward.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the forecast trend?",
+      "category": "forecast",
+      "classification": "forecast",
+      "response": "Forecast quantity changes in 2 records. Net delta: 100 units (50.0 avg). Trend: Upward.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What units are forecasted?",
+      "category": "forecast",
+      "classification": "forecast",
+      "response": "Forecast quantity changes in 2 records. Net delta: 100 units (50.0 avg). Trend: Upward.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What are the top risks?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "CRITICAL risk detected. 4 records flagged (66.7%). Main risk driver: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What are the risks?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "Risk level is CRITICAL. 4 high-risk records (66.7%). Highest risk type: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the main issue?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "Risk assessment: CRITICAL (4/6 records at high risk, 66.7%). Primary concern: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the biggest risk?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "CRITICAL risk detected. 4 records flagged (66.7%). Main risk driver: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Are there any risks?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "CRITICAL risk detected. 4 records flagged (66.7%). Main risk driver: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's risky?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "Risk level is CRITICAL. 4 high-risk records (66.7%). Highest risk type: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's dangerous?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "Risk assessment: CRITICAL (4/6 records at high risk, 66.7%). Primary concern: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the high-risk situation?",
+      "category": "risk",
+      "classification": "risk",
+      "response": "Risk level is CRITICAL. 4 high-risk records (66.7%). Highest risk type: Design + Supplier Change Risk.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How many records have changed?",
+      "category": "change",
+      "classification": "change",
+      "response": "Planning assessment: Acceptable health (60/100). 4 records affected (66.7%). Main change types: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What changes have occurred?",
+      "category": "change",
+      "classification": "change",
+      "response": "Planning assessment: Acceptable health (60/100). 4 records affected (66.7%). Main change types: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's changed?",
+      "category": "change",
+      "classification": "change",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How many changes?",
+      "category": "change",
+      "classification": "change",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What quantity changes?",
+      "category": "change",
+      "classification": "change",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What design changes?",
+      "category": "change",
+      "classification": "change",
+      "response": "Current planning status: Acceptable (60/100). 66.7% of records show changes (4/6). Key changes: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What supplier changes?",
+      "category": "change",
+      "classification": "change",
+      "response": "Planning health is 60/100 (Acceptable). 4 of 6 records have changed (66.7%). Primary drivers: Design (1), Supplier (1), Quantity (2).",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the ROJ?",
+      "category": "schedule",
+      "classification": "schedule",
+      "response": "1 records have ROJ schedule changes. Average delta: 7.0 days.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "List suppliers for CYS20_F01C01",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Location CYS20_F01C01: 3 records with 2 recent changes (66.7%). Key suppliers: 10_AMER, 130_AMER, 1690_AMER.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which materials are affected?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Impact analysis: 1690_AMER (2), 130_AMER (1), 170_AMER (1) are most affected. Materials: UPS (2), MVSXRM (2). Scope: 5 suppliers, 4 total changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which suppliers at CYS20_F01C01 have design changes?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Location CYS20_F01C01: 3 records with 2 recent changes (66.7%). Key suppliers: 10_AMER, 130_AMER, 1690_AMER.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What suppliers are involved?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Highest impact: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Key materials: UPS (2), MVSXRM (2). Breadth: 5 suppliers involved, 4 changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What materials are involved?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Highest impact: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Key materials: UPS (2), MVSXRM (2). Breadth: 5 suppliers involved, 4 changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "List materials for DSM18_F01C01",
+      "category": "entity",
+      "classification": "entity",
+      "response": "At DSM18_F01C01, 3 materials are tracked. 2 show recent changes (66.7%). Suppliers involved: 110_AMER, 1690_AMER, 170_AMER.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which locations are affected?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Top suppliers affected: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Top materials: UPS (2), MVSXRM (2). Total impact: 4 changes across 5 suppliers.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What groups are affected?",
+      "category": "entity",
+      "classification": "entity",
+      "response": "Highest impact: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Key materials: UPS (2), MVSXRM (2). Breadth: 5 suppliers involved, 4 changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare CYS20_F01C01 vs DSM18_F01C01",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "CYS20_F01C01: 3 materials with 2 changes. DSM18_F01C01: 3 materials with 2 changes. Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the difference between CYS20_F01C01 and DSM18_F01C01?",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "CYS20_F01C01 shows 2 changes across 3 materials. DSM18_F01C01 shows 2 changes across 3 materials. Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare DSM18_F01C01 versus CYS20_F01C01",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "DSM18_F01C01 shows 2 changes across 3 materials. CYS20_F01C01 shows 2 changes across 3 materials. Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "CYS20_F01C01 vs DSM18_F01C01",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "Comparison: CYS20_F01C01 (3 materials, 2 changes) vs DSM18_F01C01 (3 materials, 2 changes). Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Difference between CYS20_F01C01 and DSM18_F01C01",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "CYS20_F01C01: 3 materials with 2 changes. DSM18_F01C01: 3 materials with 2 changes. Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare locations CYS20_F01C01 and DSM18_F01C01",
+      "category": "comparison",
+      "classification": "comparison",
+      "response": "CYS20_F01C01 shows 2 changes across 3 materials. DSM18_F01C01 shows 2 changes across 3 materials. Both locations show similar activity levels.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which supplier has the most impact?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Impact analysis: 1690_AMER (2), 130_AMER (1), 170_AMER (1) are most affected. Materials: UPS (2), MVSXRM (2). Scope: 5 suppliers, 4 total changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What is the impact?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Impact analysis: 1690_AMER (2), 130_AMER (1), 170_AMER (1) are most affected. Materials: UPS (2), MVSXRM (2). Scope: 5 suppliers, 4 total changes.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which materials are most affected?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Top suppliers affected: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Top materials: UPS (2), MVSXRM (2). Total impact: 4 changes across 5 suppliers.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the impact on suppliers?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Top suppliers affected: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Top materials: UPS (2), MVSXRM (2). Total impact: 4 changes across 5 suppliers.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which supplier has the most changes?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Top suppliers affected: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Top materials: UPS (2), MVSXRM (2). Total impact: 4 changes across 5 suppliers.",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the consequence of changes?",
+      "category": "impact",
+      "classification": "impact",
+      "response": "Highest impact: 1690_AMER (2), 130_AMER (1), 170_AMER (1). Key materials: UPS (2), MVSXRM (2). Breadth: 5 suppliers involved, 4 changes.",
+      "passed": true,
+      "error": null
+    }
+  ]
+}

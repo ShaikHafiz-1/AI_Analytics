@@ -250,27 +250,64 @@ def alert_trigger_tool(
 ) -> dict:
     """
     Evaluates deterministic alert thresholds and returns a structured
-    alert payload. Uses alert_rules.py — no LLM involved.
+    alert payload. Deterministic fallback (alert_rules.py was deleted).
     """
-    from alert_rules import evaluate_alerts, alert_to_dict
+    # Deterministic alert evaluation
+    alerts = []
+    
+    # Health alert
+    if ctx.planning_health < 40:
+        alerts.append({
+            "type": "critical",
+            "severity": "high",
+            "message": f"Planning health is critical at {ctx.planning_health}/100",
+            "threshold": 40,
+            "current_value": ctx.planning_health,
+        })
+    elif ctx.planning_health < 60:
+        alerts.append({
+            "type": "warning",
+            "severity": "medium",
+            "message": f"Planning health is at risk ({ctx.planning_health}/100)",
+            "threshold": 60,
+            "current_value": ctx.planning_health,
+        })
+    
+    # Risk alert
+    if risk.highest_risk_level == "High":
+        alerts.append({
+            "type": "risk",
+            "severity": "high",
+            "message": f"High-risk records detected: {risk.highest_risk_level}",
+            "threshold": "Medium",
+            "current_value": risk.highest_risk_level,
+        })
+    
+    # Forecast alert
+    if abs(ctx.trend_delta) > 1000:
+        alerts.append({
+            "type": "forecast",
+            "severity": "medium",
+            "message": f"Significant forecast change: {ctx.trend_delta:+,.0f} units",
+            "threshold": 1000,
+            "current_value": ctx.trend_delta,
+        })
+    
+    # Change rate alert
+    change_rate = (ctx.quantity_changed_count / max(ctx.total_records, 1)) * 100
+    if change_rate > 50:
+        alerts.append({
+            "type": "change_rate",
+            "severity": "medium",
+            "message": f"High change rate: {change_rate:.1f}%",
+            "threshold": 50,
+            "current_value": change_rate,
+        })
+    
+    return {
+        "alerts": alerts,
+        "alert_count": len(alerts),
+        "highest_severity": max([a["severity"] for a in alerts], default="low"),
+        "timestamp": ctx.last_updated_at if hasattr(ctx, 'last_updated_at') else None,
+    }
 
-    alert = evaluate_alerts(
-        planning_health=ctx.planning_health,
-        status="",
-        forecast_new=ctx.forecast_new,
-        forecast_old=ctx.forecast_old,
-        trend_delta=ctx.trend_delta,
-        trend_direction=ctx.trend_direction,
-        quantity_changed_count=ctx.quantity_changed_count,
-        supplier_changed_count=ctx.supplier_changed_count,
-        design_changed_count=ctx.design_changed_count,
-        roj_changed_count=ctx.roj_changed_count,
-        highest_risk_level=risk.highest_risk_level,
-        top_impacted_location=ctx.top_impacted_location,
-        top_impacted_supplier=ctx.top_impacted_supplier,
-        top_impacted_material_group=ctx.top_impacted_material_group,
-        total_records=ctx.total_records,
-        new_record_count=ctx.new_records,
-        snapshot_history=snapshot_history,
-    )
-    return alert_to_dict(alert)

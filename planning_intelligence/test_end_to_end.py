@@ -25,7 +25,7 @@ from planning_intelligence.phase1_core_functions import (
     AnswerModeDecider,
     ScopedMetricsComputer
 )
-from planning_intelligence.phase3_integration import IntegratedQueryProcessor
+from planning_intelligence.phase3_integration import Phase3Integration
 
 
 class TestEndToEndIntegration:

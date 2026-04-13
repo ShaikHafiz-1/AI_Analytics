@@ -7,7 +7,7 @@ from typing import Optional
 from collections import Counter
 from models import ComparedRecord, TrendRecord
 from analytics import is_changed
-from insight_generator import generate_insights
+# Removed: insight_generator (module deleted during cleanup)
 
 
 def build_dashboard_response(
@@ -68,24 +68,14 @@ def build_dashboard_response(
         design_changed_count, supplier_changed_count,
     )
 
-    # --- AI Insight ---
-    insights = generate_insights(
+    # --- AI Insight (deterministic fallback) ---
+    insights = _generate_insights_deterministic(
         total_records=total,
-        matched_records=total - new_records,
-        new_records=new_records,
-        forecast_new=forecast_new,
-        forecast_old=forecast_old,
-        trend_delta=trend_delta,
+        changed_count=changed_count,
+        forecast_delta=trend_delta,
         trend_direction=trend_direction,
-        quantity_changed_count=qty_changed_count,
-        supplier_changed_count=supplier_changed_count,
-        design_changed_count=design_changed_count,
-        roj_changed_count=roj_changed_count,
         highest_risk_level=highest_risk,
-        top_impacted_location=top_location,
-        top_impacted_supplier=top_supplier,
-        top_impacted_material=top_material,
-        top_impacted_material_group=top_group,
+        top_location=top_location,
     )
 
     return {
@@ -343,3 +333,25 @@ def _slim_record(r) -> dict:
         "lastModifiedBy": r.last_modified_by,
         "lastModifiedDate": r.last_modified_date,
     }
+
+
+def _generate_insights_deterministic(
+    total_records: int,
+    changed_count: int,
+    forecast_delta: float,
+    trend_direction: str,
+    highest_risk_level: str,
+    top_location: Optional[str],
+) -> str:
+    """
+    Generate insights deterministically without LLM.
+    Replaces the deleted insight_generator.generate_insights() function.
+    """
+    pct = round((changed_count / max(total_records, 1)) * 100, 1)
+    
+    if highest_risk_level == "High":
+        return f"⚠️ Planning health is at risk. {pct}% of records changed ({changed_count}/{total_records}). Forecast {trend_direction} by {abs(forecast_delta):,.0f} units. Top location: {top_location or 'N/A'}. Immediate action required."
+    elif highest_risk_level == "Medium":
+        return f"📊 Planning health is moderate. {pct}% of records changed. Forecast {trend_direction}. Review changes at {top_location or 'key locations'}."
+    else:
+        return f"✅ Planning health is stable. {pct}% of records changed. Forecast {trend_direction}. No immediate action needed."

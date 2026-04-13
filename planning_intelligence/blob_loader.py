@@ -83,10 +83,37 @@ def download_blob(connection_string: str, container: str, blob_name: str) -> byt
         return data
     except Exception as e:
         msg = str(e)
-        if "BlobNotFound" in msg or "404" in msg:
-            raise BlobLoaderError(f"Blob not found: {container}/{blob_name}")
-        if "AuthenticationFailed" in msg or "403" in msg:
-            raise BlobLoaderError(f"Authentication failed for blob: {container}/{blob_name}")
+        error_lower = msg.lower()
+        
+        # Detailed error messages for debugging
+        if "blobnotfound" in error_lower or "404" in msg or "does not exist" in error_lower:
+            raise BlobLoaderError(
+                f"Blob not found: {container}/{blob_name}\n"
+                f"Please verify:\n"
+                f"  1. Container '{container}' exists in Azure Storage\n"
+                f"  2. File '{blob_name}' exists in the container\n"
+                f"  3. File is not empty (has data rows)\n"
+                f"  4. File has required columns: LOCID, PRDID, GSCEQUIPCAT"
+            )
+        if "authenticationfailed" in error_lower or "403" in msg or "unauthorized" in error_lower:
+            raise BlobLoaderError(
+                f"Authentication failed for blob: {container}/{blob_name}\n"
+                f"Please verify:\n"
+                f"  1. BLOB_CONNECTION_STRING is correct in local.settings.json\n"
+                f"  2. Account key hasn't been rotated\n"
+                f"  3. Account name is 'planningdatapi'\n"
+                f"  4. You have access to the storage account"
+            )
+        if "connection" in error_lower or "timeout" in error_lower:
+            raise BlobLoaderError(
+                f"Connection error downloading blob {container}/{blob_name}: {e}\n"
+                f"Please verify:\n"
+                f"  1. Network connectivity to Azure Storage\n"
+                f"  2. Firewall isn't blocking the connection\n"
+                f"  3. Azure Storage account is accessible\n"
+                f"  4. Try again in a few moments"
+            )
+        
         raise BlobLoaderError(f"Failed to download blob {container}/{blob_name}: {e}")
 
 
@@ -105,29 +132,40 @@ def load_file_from_bytes(content: bytes, label: str = "file", filename: str = ""
         raise BlobLoaderError(f"Empty file content for {label}.")
 
     fname = filename.lower()
+    logger.info(f"Loading {label} ({filename}): {len(content)} bytes")
 
     try:
         if fname.endswith(".csv"):
             # Try UTF-8 first, fall back to latin-1 for special characters
             try:
                 df = pd.read_csv(io.BytesIO(content), dtype=str, encoding='utf-8')
+                logger.info(f"Successfully parsed {label} with UTF-8 encoding")
             except UnicodeDecodeError:
+                logger.info(f"UTF-8 decode failed for {label}, trying latin-1")
                 df = pd.read_csv(io.BytesIO(content), dtype=str, encoding='latin-1')
+                logger.info(f"Successfully parsed {label} with latin-1 encoding")
         else:
             # Try openpyxl first (.xlsx), then xlrd (.xls)
             try:
                 df = pd.read_excel(io.BytesIO(content), dtype=str, engine='openpyxl')
-            except Exception:
+                logger.info(f"Successfully parsed {label} with openpyxl")
+            except Exception as e1:
+                logger.info(f"openpyxl failed for {label}: {e1}, trying xlrd")
                 df = pd.read_excel(io.BytesIO(content), dtype=str, engine='xlrd')
+                logger.info(f"Successfully parsed {label} with xlrd")
 
         df = df.fillna("")
         if df.empty:
             raise BlobLoaderError(f"File is empty: {label}")
+        
         logger.info(f"Loaded {label}: {len(df)} rows, {len(df.columns)} columns")
+        logger.info(f"Columns in {label}: {list(df.columns)}")
+        
         return df
     except BlobLoaderError:
         raise
     except Exception as e:
+        logger.error(f"Failed to parse file ({label}): {e}")
         raise BlobLoaderError(f"Failed to parse file ({label}): {e}")
 
 
@@ -143,10 +181,14 @@ def standardize_columns(df):
 def validate_required_columns(df, label: str = "file"):
     missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
+        logger.error(f"Missing required columns in {label}: {sorted(missing)}")
+        logger.error(f"Found columns: {sorted(df.columns.tolist())}")
         raise BlobLoaderError(
             f"Missing required columns in {label}: {sorted(missing)}. "
-            f"Found: {sorted(df.columns.tolist())}"
+            f"Found: {sorted(df.columns.tolist())}. "
+            f"Required: {sorted(REQUIRED_COLUMNS)}"
         )
+    logger.info(f"✅ All required columns present in {label}: {sorted(REQUIRED_COLUMNS)}")
 
 
 # ---------------------------------------------------------------------------

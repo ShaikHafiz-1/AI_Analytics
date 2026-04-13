@@ -15,7 +15,7 @@ from mcp.tools import (
     recommendation_tool,
     alert_trigger_tool,
 )
-from ai_insight_engine import generate_insights
+# Removed: ai_insight_engine is no longer used (superseded by Phase 1-4)
 
 
 def build_response(
@@ -47,8 +47,8 @@ def build_response(
     recommendations = recommendation_tool(ctx, risk, root_cause)
     alert = alert_trigger_tool(ctx, risk)
 
-    # --- AI Insight (LLM or deterministic fallback) ---
-    insights = generate_insights(ctx, risk, root_cause, recommendations)
+    # --- AI Insight (deterministic fallback - no LLM) ---
+    insights = _generate_insights_deterministic(ctx, risk, root_cause, recommendations)
 
     # --- Summaries ---
     dc_summary = _dc_summary(compared)
@@ -575,7 +575,7 @@ def compute_supplier_metrics(records: List[ComparedRecord], location: str, suppl
     roj_issues = 0
     for r in changed:
         if isinstance(r, dict):
-            if r.get("scheduleChanged") or r.get("roj_changed"):
+            if r.get("scheduleChanged") or r.get("roj_changed") or r.get("rojChanged"):
                 roj_issues += 1
         else:
             if getattr(r, 'roj_changed', False):
@@ -612,7 +612,7 @@ def _is_changed_record(r) -> bool:
             r.get("qtyChanged"), r.get("qty_changed"),
             r.get("supplierChanged"), r.get("supplier_changed"),
             r.get("designChanged"), r.get("design_changed"),
-            r.get("scheduleChanged"), r.get("roj_changed"),
+            r.get("scheduleChanged"), r.get("roj_changed"), r.get("rojChanged"),
         ])
     else:
         return (getattr(r, 'qty_changed', False) or 
@@ -709,7 +709,7 @@ def analyze_supplier_behavior(records: List[ComparedRecord], location: str, supp
     roj_changes = 0
     for r in changed:
         if isinstance(r, dict):
-            if r.get("scheduleChanged") or r.get("roj_changed"):
+            if r.get("scheduleChanged") or r.get("roj_changed") or r.get("rojChanged"):
                 roj_changes += 1
         else:
             if getattr(r, 'roj_changed', False):
@@ -800,4 +800,43 @@ def get_record_comparison(records: List[ComparedRecord], material_id: str, locat
             "is_cancelled": getattr(record, 'is_cancelled', False),
             "is_supplier_date_missing": getattr(record, 'is_supplier_date_missing', False),
         },
+    }
+
+
+def _generate_insights_deterministic(ctx, risk, root_cause, recommendations):
+    """
+    Generate insights deterministically without LLM.
+    Replaces the deleted ai_insight_engine.generate_insights() function.
+    
+    Args:
+        ctx: AnalyticsContext dataclass
+        risk: RiskSummary dataclass
+        root_cause: RootCauseContext dataclass
+        recommendations: RecommendationContext dataclass
+    
+    Returns:
+        dict with aiInsight, rootCause, recommendedActions keys
+    """
+    # Build AI insight summary
+    health_label = _health_label(ctx.planning_health) if ctx else "Unknown"
+    trend_label = _trend_label(ctx.trend_direction) if ctx else "Unknown"
+    ai_insight = f"Planning health is {health_label}. Forecast trend is {trend_label}."
+    
+    # Extract root cause drivers
+    root_cause_drivers = []
+    if root_cause:
+        if root_cause.primary_driver:
+            root_cause_drivers.append(root_cause.primary_driver)
+        if root_cause.change_type_label:
+            root_cause_drivers.append(root_cause.change_type_label)
+    
+    # Extract recommendations
+    recommended_actions = []
+    if recommendations and hasattr(recommendations, 'actions'):
+        recommended_actions = recommendations.actions[:3] if recommendations.actions else []
+    
+    return {
+        "aiInsight": ai_insight,
+        "rootCause": root_cause_drivers[:3],
+        "recommendedActions": recommended_actions,
     }

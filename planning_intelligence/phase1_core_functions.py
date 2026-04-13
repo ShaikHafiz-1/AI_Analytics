@@ -119,17 +119,18 @@ class QuestionClassifier:
         if any(word in q for word in ["compare", "vs", "versus", "difference", "similar"]):
             return "comparison"
         
-        # Why-not patterns (check before root_cause since "why" and "not" are more specific)
-        if "why" in q and "not" in q:
-            return "why_not"
-        
-        # Traceability patterns (check before root_cause since "show" is more specific)
-        if any(word in q for word in ["show", "top", "contributing", "records", "impacted", "affected"]):
+        # Traceability patterns (check before root_cause and why_not since they're more specific)
+        if any(word in q for word in ["show", "top", "contributing", "records", "impacted", "affected", "list"]):
             return "traceability"
+        
+        # Why-not patterns (check before root_cause since "why" and "not" are more specific)
+        # Check for "not", "stable", or "why" without "risky"
+        if ("why" in q and "not" in q) or ("why" in q and "stable" in q):
+            return "why_not"
         
         # Root cause patterns
         if any(word in q for word in ["why", "reason", "cause", "risky", "risk", "problem", "issue"]):
-            if "not" not in q:
+            if "not" not in q and "stable" not in q:
                 return "root_cause"
         
         # Default to summary
