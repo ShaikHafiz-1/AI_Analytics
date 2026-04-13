@@ -1,370 +1,262 @@
 """
-Phase 2: Answer Templates - Generate query-specific answers
+Phase 2: Answer Templates - Generate targeted responses for different query types
 
-This module implements answer templates for different query types:
-1. Comparison template - side-by-side comparison
-2. Root cause template - why something is risky
-3. Why-not template - why something is stable
-4. Traceability template - top contributing records
-5. Summary template - general summary (backward compatible)
+This module implements answer templates for:
+1. Comparison answers
+2. Root cause answers
+3. Why-not answers
+4. Traceability answers
+5. Summary answers
 """
 
 from typing import Dict, List, Any, Optional
 
 
-class ComparisonAnswerTemplate:
-    """Generate comparison answers for side-by-side analysis."""
+class AnswerTemplates:
+    """Generates answers using query-specific templates."""
     
     @staticmethod
-    def generate(
-        entity1: str,
-        entity2: str,
-        metrics1: Dict[str, Any],
-        metrics2: Dict[str, Any],
-        scope_type: str
+    def generate_comparison_answer(
+        question: str,
+        ctx: Dict[str, Any],
+        entities: List[str],
+        scoped_metrics: Dict[str, Any]
     ) -> str:
         """
         Generate comparison answer.
         
-        Format: "Comparing [entity1] vs [entity2]:
-        - [entity1]: [changed_count] changes ([change_rate]%), primary driver: [driver]
-        - [entity2]: [changed_count] changes ([change_rate]%), primary driver: [driver]
-        [entity1] has [more/fewer] changes than [entity2]."
-        Improved to clarify metrics and provide actionable insights.
+        Template: 📊 [Entity A] vs [Entity B]
+        [Entity A]: X changed (Y%), drivers: [list]
+        [Entity B]: X changed (Y%), drivers: [list]
+        → [Entity A] has more changes
         """
-        changed1 = metrics1.get("changedCount", 0)
-        total1 = metrics1.get("filteredRecordsCount", 0)
-        rate1 = metrics1.get("changeRate", 0)
-        driver1 = metrics1.get("scopedDrivers", {}).get("primary", "unknown")
+        if len(entities) < 2:
+            return "Could not extract two entities to compare."
         
-        changed2 = metrics2.get("changedCount", 0)
-        total2 = metrics2.get("filteredRecordsCount", 0)
-        rate2 = metrics2.get("changeRate", 0)
-        driver2 = metrics2.get("scopedDrivers", {}).get("primary", "unknown")
+        entity_a, entity_b = entities[0], entities[1]
         
-        scope_label = scope_type.replace("_", " ").title()
+        # Get metrics for each entity
+        metrics_a = scoped_metrics.get(entity_a, {})
+        metrics_b = scoped_metrics.get(entity_b, {})
         
-        comparison = "more" if changed1 > changed2 else "fewer" if changed1 < changed2 else "the same number of"
+        changed_a = metrics_a.get("changedCount", 0)
+        total_a = metrics_a.get("filteredRecordsCount", 0)
+        rate_a = metrics_a.get("changeRate", 0)
+        driver_a = metrics_a.get("scopedDrivers", {}).get("primary", "unknown")
         
-        answer = f"""📊 Comparing {entity1} vs {entity2}:
-
-**{entity1}:**
-  • Total Records: {total1:,}
-  • Changed Records: {changed1:,} ({rate1}% change rate)
-  • Primary Driver: {driver1.title()}
-
-**{entity2}:**
-  • Total Records: {total2:,}
-  • Changed Records: {changed2:,} ({rate2}% change rate)
-  • Primary Driver: {driver2.title()}
-
-**Summary:** {entity1} has {comparison} changes than {entity2}. """
+        changed_b = metrics_b.get("changedCount", 0)
+        total_b = metrics_b.get("filteredRecordsCount", 0)
+        rate_b = metrics_b.get("changeRate", 0)
+        driver_b = metrics_b.get("scopedDrivers", {}).get("primary", "unknown")
         
-        if changed1 > changed2:
-            answer += f"\n{entity1} is riskier due to higher change frequency ({rate1}% vs {rate2}%)."
-            answer += f"\n\n**Recommended Action:** Prioritize review of {entity1}, focusing on {driver1} changes."
-        elif changed1 < changed2:
-            answer += f"\n{entity2} is riskier due to higher change frequency ({rate2}% vs {rate1}%)."
-            answer += f"\n\n**Recommended Action:** Prioritize review of {entity2}, focusing on {driver2} changes."
-        else:
-            answer += f"\nBoth have similar risk profiles ({rate1}% change rate)."
-            answer += f"\n\n**Recommended Action:** Review both locations, focusing on {driver1} and {driver2} changes respectively."
+        more_changes = entity_a if changed_a > changed_b else entity_b
         
-        return answer
-
-
-class RootCauseAnswerTemplate:
-    """Generate root cause answers explaining why something is risky."""
+        return (
+            f"📊 Comparison: {entity_a} vs {entity_b}\n\n"
+            f"{entity_a}: {changed_a}/{total_a} changed ({rate_a}%). "
+            f"Primary driver: {driver_a}\n"
+            f"{entity_b}: {changed_b}/{total_b} changed ({rate_b}%). "
+            f"Primary driver: {driver_b}\n\n"
+            f"→ {more_changes} has more changes and requires closer monitoring."
+        )
     
     @staticmethod
-    def generate(
-        entity: str,
-        metrics: Dict[str, Any],
-        scope_type: str
+    def generate_root_cause_answer(
+        question: str,
+        ctx: Dict[str, Any],
+        scope_type: str,
+        scope_value: str,
+        scoped_metrics: Dict[str, Any]
     ) -> str:
         """
         Generate root cause answer.
         
-        Format: "In [entity], [what changed]. This is risky because [why]. [Action]"
-        Improved to clarify driver breakdown and multiple changes.
+        Template: In [entity], [what changed]. This is risky because [why]. [Action]
         """
-        changed_count = metrics.get("changedCount", 0)
-        total_count = metrics.get("filteredRecordsCount", 0)
+        if not scope_value:
+            return "Could not identify specific entity in question."
+        
+        metrics = scoped_metrics or {}
+        what_changed = metrics.get("scopedDrivers", {}).get("primary", "changes")
         change_rate = metrics.get("changeRate", 0)
+        changed_count = metrics.get("changedCount", 0)
         
-        # Get driver counts (not percentages)
-        qty_changed = metrics.get("scopedDrivers", {}).get("quantity", 0)
-        supplier_changed = metrics.get("scopedDrivers", {}).get("supplier", 0)
-        design_changed = metrics.get("scopedDrivers", {}).get("design", 0)
-        schedule_changed = metrics.get("scopedDrivers", {}).get("schedule", 0)
+        why_risky = f"{change_rate}% of records changed ({changed_count} records)"
+        actions = ctx.get("recommendedActions", ["Monitor the situation"])
+        action = actions[0] if actions else "Monitor the situation"
         
-        primary_driver = metrics.get("scopedDrivers", {}).get("primary", "unknown")
-        top_records = metrics.get("topContributingRecords", [])
-        
-        scope_label = scope_type.replace("_", " ").title()
-        
-        # Build what changed
-        what_changed = f"{changed_count} of {total_count} records have changed ({change_rate}%)"
-        
-        # Build driver breakdown with counts
-        driver_breakdown = f"""  • Quantity: {qty_changed} records
-  • Schedule: {schedule_changed} records
-  • Design: {design_changed} records
-  • Supplier: {supplier_changed} records"""
-        
-        # Build action
-        action = f"Review the {changed_count} changed records and prioritize {primary_driver} changes."
-        
-        answer = f"""⚠️ Risk Analysis for {entity}:
-
-**What Changed:** {what_changed}
-
-**Why It's Risky:** The primary driver is {primary_driver} changes
-
-**Change Breakdown (by frequency):**
-{driver_breakdown}
-
-ℹ️ Note: Some records have multiple change types, so totals may exceed changed record count.
-
-**Recommended Action:** {action}"""
-        
-        if top_records:
-            answer += f"\n\n**Top Contributing Records:** {len(top_records)} records with largest deltas"
-        
-        return answer
-
-
-class WhyNotAnswerTemplate:
-    """Generate why-not answers explaining why something is stable."""
+        return (
+            f"In {scope_value}, {what_changed} changed. "
+            f"This is risky because {why_risky}. "
+            f"Recommended action: {action}"
+        )
     
     @staticmethod
-    def generate(
-        entity: str,
-        metrics: Dict[str, Any],
+    def generate_why_not_answer(
+        question: str,
+        ctx: Dict[str, Any],
         scope_type: str,
-        all_metrics: Optional[Dict[str, Any]] = None
+        scope_value: str,
+        scoped_metrics: Dict[str, Any]
     ) -> str:
         """
         Generate why-not answer.
         
-        Format: "[Entity] is stable because [reasons]. [Comparison if available]"
+        Template: [Entity] is stable because [reasons]. Unlike [risky entity], [differences]
         """
+        if not scope_value:
+            return "Could not identify specific entity in question."
+        
+        metrics = scoped_metrics or {}
         changed_count = metrics.get("changedCount", 0)
         total_count = metrics.get("filteredRecordsCount", 0)
         change_rate = metrics.get("changeRate", 0)
         
-        scope_label = scope_type.replace("_", " ").title()
-        
-        # Build stability statement
         if changed_count == 0:
-            stability = f"no records have changed"
-        else:
-            stability = f"only {changed_count} out of {total_count} records have changed ({change_rate}%)"
+            return f"{scope_value} is stable because no records changed this cycle."
         
-        answer = f"""✅ Stability Analysis for {entity}:
-
-**Why It's Stable:** {stability}
-
-This indicates a low-risk, stable planning environment for {entity}."""
+        if change_rate < 10:
+            return f"{scope_value} is stable because only {change_rate}% of records changed."
         
-        # Add comparison if all_metrics provided
-        if all_metrics:
-            global_changed = all_metrics.get("changedCount", 0)
-            global_rate = all_metrics.get("changeRate", 0)
-            
-            if global_rate > change_rate:
-                answer += f"\n\n**Comparison:** {entity} is more stable than the overall portfolio ({change_rate}% vs {global_rate}% change rate)."
-            elif global_rate < change_rate:
-                answer += f"\n\n**Comparison:** {entity} is less stable than the overall portfolio ({change_rate}% vs {global_rate}% change rate)."
-        
-        return answer
-
-
-class TraceabilityAnswerTemplate:
-    """Generate traceability answers showing top contributing records."""
+        return (
+            f"{scope_value} has {change_rate}% change rate, which is below the risk threshold. "
+            f"This is stable compared to other locations with higher change rates."
+        )
     
     @staticmethod
-    def generate(
-        entity: str,
-        metrics: Dict[str, Any],
-        scope_type: str
+    def generate_traceability_answer(
+        question: str,
+        ctx: Dict[str, Any],
+        scoped_metrics: Dict[str, Any]
     ) -> str:
         """
         Generate traceability answer.
         
-        Format: "📊 Top [N] contributing records:
-        1. [location] - [material] - [delta] - [change_type] - [risk]
-        ..."
+        Template: 📊 Top [N] contributing records:
+        [Record 1]: [location] / [material] / Δ[delta] / [risk]
+        ...
         """
-        top_records = metrics.get("topContributingRecords", [])
-        filtered_count = metrics.get("filteredRecordsCount", 0)
+        records = scoped_metrics.get("topContributingRecords", [])
+        if not records:
+            return "No contributing records found."
         
-        scope_label = scope_type.replace("_", " ").title()
-        
-        answer = f"""📊 Top Contributing Records for {entity}:
-
-**Total Records:** {filtered_count}
-**Top Contributors:** {len(top_records)} records with largest deltas
-
-"""
-        
-        if not top_records:
-            answer += "No records found."
-            return answer
-        
-        for i, record in enumerate(top_records, 1):
-            location = record.get("LOCID", "Unknown")
-            material = record.get("PRDID", "Unknown")
-            delta = record.get("qtyDelta", 0)
+        lines = [f"📊 Top {len(records)} contributing records (by forecast delta):"]
+        for i, r in enumerate(records, 1):
+            delta = r.get("qtyDelta", 0)
+            delta_str = f"{delta:+,.0f}"
+            location = r.get("LOCID", "?")
+            material_group = r.get("GSCEQUIPCAT", "?")
+            material_id = r.get("PRDID", "?")
+            risk = r.get("Risk_Flag", False)
+            risk_str = "🔴 High Risk" if risk else "🟢 Normal"
             
-            # Determine change type
-            change_types = []
-            if record.get("qtyChanged"):
-                change_types.append("Qty")
-            if record.get("supplierChanged"):
-                change_types.append("Supplier")
-            if record.get("designChanged"):
-                change_types.append("Design")
-            if record.get("scheduleChanged"):
-                change_types.append("Schedule")
-            
-            change_type = ", ".join(change_types) if change_types else "Unknown"
-            
-            # Determine risk level
-            risk = "High" if record.get("Risk_Flag") else "Normal"
-            
-            answer += f"{i}. **{location}** - {material}\n"
-            answer += f"   - Delta: {delta}\n"
-            answer += f"   - Changes: {change_type}\n"
-            answer += f"   - Risk: {risk}\n\n"
+            lines.append(
+                f"  {i}. {location} / {material_group} / {material_id} — Δ{delta_str} [{risk_str}]"
+            )
         
-        return answer
-
-
-class SummaryAnswerTemplate:
-    """Generate summary answers (backward compatible)."""
+        return "\n".join(lines)
     
     @staticmethod
-    def generate(
+    def generate_summary_answer(
         question: str,
-        metrics: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
+        ctx: Dict[str, Any]
     ) -> str:
         """
-        Generate summary answer (backward compatible).
+        Generate summary answer for overall status.
         
-        This is the default template for unscoped questions.
-        Improved to clarify metrics and driver breakdown.
+        Template: Planning health is [X]. [Y]% changed. Risk: [Z].
         """
-        changed_count = metrics.get("changedCount", 0)
-        total_count = metrics.get("filteredRecordsCount", 0)
-        change_rate = metrics.get("changeRate", 0)
+        planning_health = ctx.get("planningHealth", "Unknown")
+        changed_count = ctx.get("changedRecordCount", 0)
+        total_records = ctx.get("totalRecords", 1)
+        change_rate = round(changed_count / max(total_records, 1) * 100, 1)
         
-        # Get driver counts (not percentages)
-        qty_changed = metrics.get("scopedDrivers", {}).get("quantity", 0)
-        supplier_changed = metrics.get("scopedDrivers", {}).get("supplier", 0)
-        design_changed = metrics.get("scopedDrivers", {}).get("design", 0)
-        schedule_changed = metrics.get("scopedDrivers", {}).get("schedule", 0)
+        drivers = ctx.get("drivers", {})
+        primary_driver = max(drivers.items(), key=lambda x: x[1])[0] if drivers else "unknown"
         
-        primary_driver = metrics.get("scopedDrivers", {}).get("primary", "unknown")
+        risk_level = "High" if change_rate > 30 else "Medium" if change_rate > 10 else "Low"
         
-        # Build driver breakdown with counts and clarification
-        driver_breakdown = f"""**Change Drivers (by frequency):**
-  • Quantity: {qty_changed} records
-  • Schedule: {schedule_changed} records
-  • Design: {design_changed} records
-  • Supplier: {supplier_changed} records
-  
-  ℹ️ Note: Some records have multiple change types, so totals may exceed changed record count."""
-        
-        answer = f"""📊 Planning Intelligence Summary:
-
-**Overall Metrics:**
-  • Total Records: {total_count:,}
-  • Changed Records: {changed_count:,} ({change_rate}% change rate)
-  • Primary Driver: {primary_driver.title()}
-
-{driver_breakdown}
-
-**Status:** 🟡 HIGH
-**Action:** Review planning adjustments needed.
-
-**Recommended Actions:**
-  1. Prioritize {primary_driver} changes for immediate review
-  2. Validate {primary_driver} change impact on planning
-  3. Coordinate with supply chain and engineering teams
-  4. Establish baseline parameters for new records
-  5. Monitor trend for next planning cycle"""
-        
-        return answer
+        return (
+            f"Planning health is {planning_health}. "
+            f"{change_rate}% of records changed ({changed_count}/{total_records}). "
+            f"Primary driver: {primary_driver}. "
+            f"Risk level: {risk_level}."
+        )
 
 
-class AnswerTemplateRouter:
-    """Route to appropriate answer template based on query type and mode."""
+class ResponseBuilder:
+    """Builds complete responses with all required fields."""
     
     @staticmethod
-    def generate_answer(
+    def build_response(
+        question: str,
+        answer: str,
         query_type: str,
         answer_mode: str,
-        entity: Optional[str],
-        metrics: Dict[str, Any],
-        scope_type: Optional[str],
-        comparison_entities: Optional[List[str]] = None,
-        all_metrics: Optional[Dict[str, Any]] = None,
-        question: Optional[str] = None
-    ) -> str:
+        ctx: Dict[str, Any],
+        scope_type: Optional[str] = None,
+        scope_value: Optional[str] = None,
+        scoped_metrics: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Route to appropriate answer template.
-        
-        Args:
-            query_type: "comparison", "root_cause", "why_not", "traceability", "summary"
-            answer_mode: "summary" or "investigate"
-            entity: The entity being analyzed (location, supplier, etc.)
-            metrics: Computed metrics for the entity
-            scope_type: Type of scope (location, supplier, etc.)
-            comparison_entities: For comparison queries, list of entities to compare
-            all_metrics: Global metrics for comparison
-            question: Original question
-        
-        Returns:
-            Generated answer string
+        Build complete response with all fields.
         """
-        if query_type == "comparison" and comparison_entities and len(comparison_entities) >= 2:
-            # Get metrics for both entities (would need to be computed separately)
-            # For now, use the provided metrics for entity1
-            return ComparisonAnswerTemplate.generate(
-                comparison_entities[0],
-                comparison_entities[1],
-                metrics,
-                all_metrics or metrics,
-                scope_type or "unknown"
-            )
+        response = {
+            "question": question,
+            "answer": answer,
+            "queryType": query_type,
+            "answerMode": answer_mode,
+            "aiInsight": ctx.get("aiInsight"),
+            "rootCause": ctx.get("rootCause"),
+            "recommendedActions": ctx.get("recommendedActions", []),
+            "planningHealth": ctx.get("planningHealth"),
+            "dataMode": ctx.get("dataMode", "cached"),
+            "lastRefreshedAt": ctx.get("lastRefreshedAt"),
+            "supportingMetrics": {
+                "changedRecordCount": ctx.get("changedRecordCount"),
+                "totalRecords": ctx.get("totalRecords"),
+                "trendDelta": ctx.get("trendDelta"),
+                "planningHealth": ctx.get("planningHealth"),
+            },
+            "explainability": ResponseBuilder._build_explainability(ctx, question),
+            "suggestedActions": ResponseBuilder._build_suggested_actions(question, ctx),
+            "followUpQuestions": ResponseBuilder._build_follow_ups(question, ctx),
+        }
         
-        elif query_type == "root_cause" and answer_mode == "investigate":
-            return RootCauseAnswerTemplate.generate(
-                entity or "this scope",
-                metrics,
-                scope_type or "unknown"
-            )
+        # Add investigate mode fields if applicable
+        if answer_mode == "investigate" and scoped_metrics:
+            response["investigateMode"] = {
+                "filteredRecordsCount": scoped_metrics.get("filteredRecordsCount"),
+                "scopedContributionBreakdown": scoped_metrics.get("scopedContributionBreakdown"),
+                "scopedDrivers": scoped_metrics.get("scopedDrivers"),
+                "topContributingRecords": scoped_metrics.get("topContributingRecords"),
+                "scopeType": scope_type,
+                "scopeValue": scope_value,
+            }
         
-        elif query_type == "why_not" and answer_mode == "investigate":
-            return WhyNotAnswerTemplate.generate(
-                entity or "this scope",
-                metrics,
-                scope_type or "unknown",
-                all_metrics
-            )
-        
-        elif query_type == "traceability":
-            return TraceabilityAnswerTemplate.generate(
-                entity or "this scope",
-                metrics,
-                scope_type or "unknown"
-            )
-        
-        else:  # Default to summary
-            return SummaryAnswerTemplate.generate(
-                question or "Planning Intelligence Query",
-                metrics,
-                None
-            )
+        return response
+    
+    @staticmethod
+    def _build_explainability(ctx: Dict[str, Any], question: str) -> Dict[str, Any]:
+        """Build explainability metadata."""
+        return {
+            "confidence": 0.95,
+            "freshness": "recent",
+            "dataSource": ctx.get("dataSource", "Blob"),
+            "lastRefreshedAt": ctx.get("lastRefreshedAt"),
+        }
+    
+    @staticmethod
+    def _build_suggested_actions(question: str, ctx: Dict[str, Any]) -> List[str]:
+        """Build suggested actions based on context."""
+        actions = ctx.get("recommendedActions", [])
+        return actions[:3] if actions else ["Monitor the situation", "Review data", "Take action"]
+    
+    @staticmethod
+    def _build_follow_ups(question: str, ctx: Dict[str, Any]) -> List[str]:
+        """Build follow-up questions."""
+        return [
+            "What changed most?",
+            "Which records are affected?",
+            "What should I do next?",
+        ]

@@ -1,0 +1,329 @@
+{
+  "passed": 46,
+  "failed": 0,
+  "errors": 0,
+  "details": [
+    {
+      "prompt": "What's the current planning health status?",
+      "expected": "health",
+      "got": "health",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the planning health?",
+      "expected": "health",
+      "got": "health",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Is planning healthy?",
+      "expected": "health",
+      "got": "health",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the health score?",
+      "expected": "health",
+      "got": "health",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How is planning health?",
+      "expected": "health",
+      "got": "health",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the forecast?",
+      "expected": "forecast",
+      "got": "forecast",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the trend?",
+      "expected": "forecast",
+      "got": "forecast",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the delta?",
+      "expected": "forecast",
+      "got": "forecast",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the forecast trend?",
+      "expected": "forecast",
+      "got": "forecast",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What units are forecasted?",
+      "expected": "forecast",
+      "got": "forecast",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What are the top risks?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What are the risks?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the main issue?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the biggest risk?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Are there any risks?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's risky?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's dangerous?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the high-risk situation?",
+      "expected": "risk",
+      "got": "risk",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How many records have changed?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What changes have occurred?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's changed?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "How many changes?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What quantity changes?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What design changes?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What supplier changes?",
+      "expected": "change",
+      "got": "change",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the ROJ?",
+      "expected": "schedule",
+      "got": "schedule",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "List suppliers for CYS20_F01C01",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which materials are affected?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which suppliers at CYS20_F01C01 have design changes?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What suppliers are involved?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What materials are involved?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "List materials for DSM18_F01C01",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which locations are affected?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What groups are affected?",
+      "expected": "entity",
+      "got": "entity",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare CYS20_F01C01 vs DSM18_F01C01",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the difference between CYS20_F01C01 and DSM18_F01C01?",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare DSM18_F01C01 versus CYS20_F01C01",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "CYS20_F01C01 vs DSM18_F01C01",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Difference between CYS20_F01C01 and DSM18_F01C01",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Compare locations CYS20_F01C01 and DSM18_F01C01",
+      "expected": "comparison",
+      "got": "comparison",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which supplier has the most impact?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What is the impact?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which materials are most affected?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the impact on suppliers?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "Which supplier has the most changes?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    },
+    {
+      "prompt": "What's the consequence of changes?",
+      "expected": "impact",
+      "got": "impact",
+      "passed": true,
+      "error": null
+    }
+  ]
+}

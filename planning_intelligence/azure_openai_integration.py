@@ -39,6 +39,48 @@ class AzureOpenAIIntegration:
         )
         self.deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
     
+    def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 400
+    ) -> Optional[str]:
+        """
+        Call Azure OpenAI chat completion API.
+        
+        This is the core method used by GenerativeResponseEngine to generate
+        natural language responses using Azure OpenAI.
+        
+        Args:
+            messages: List of message dicts with "role" and "content"
+                     Example: [{"role": "user", "content": "Your prompt here"}]
+            temperature: Temperature for response generation (0-1)
+                        Lower = more deterministic, Higher = more creative
+            max_tokens: Maximum tokens in response
+        
+        Returns:
+            Response text from Azure OpenAI, or None if failed
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.deployment_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            if response and response.choices and len(response.choices) > 0:
+                content = response.choices[0].message.content
+                if content:
+                    return content
+            
+            logger.warning("Empty response from Azure OpenAI")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Azure OpenAI chat completion failed: {e}")
+            return None
+    
     def extract_intent_and_entities(
         self,
         query: str,

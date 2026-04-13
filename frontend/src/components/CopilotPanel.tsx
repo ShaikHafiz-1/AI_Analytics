@@ -1,6 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { DashboardContext, DashboardResponse } from "../types/dashboard";
 import { fetchExplain } from "../services/api";
+import {
+  buildSmartPrompts,
+  buildEntityPrompts,
+  selectDiversePrompts,
+  buildFollowUps,
+} from "../utils/promptGenerator";
+import {
+  buildGreeting,
+  buildFallbackAnswer,
+  filterDetailsByEntity,
+  contextLabel,
+} from "../utils/answerGenerator";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -18,339 +30,24 @@ interface CopilotPanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// Context label for header
-// ---------------------------------------------------------------------------
-function contextLabel(entity?: { type: string; item: string } | null): string {
-  if (!entity) return "Global Analysis";
-  const labels: Record<string, string> = { location: "Location", material: "Material Group", supplier: "Supplier", risk: "Risk" };
-  return `${labels[entity.type] ?? entity.type}: ${entity.item}`;
-}
-
-// ---------------------------------------------------------------------------
 // Dynamic smart prompts — business-oriented, data-aware
+// (Extracted to utils/promptGenerator.ts)
 // ---------------------------------------------------------------------------
-
-interface PromptCandidate {
-  text: string;
-  relevance: number; // 0-100, higher = more relevant
-  category: string;
-}
-
-function buildSmartPrompts(ctx: DashboardContext, entity?: { type: string; item: string } | null): string[] {
-  const candidates: PromptCandidate[] = [];
-
-  if (entity) {
-    return buildEntityPrompts(ctx, entity);
-  }
-
-  // --- Health & Summary ---
-  if (ctx.planningHealth < 40) {
-    candidates.push({ text: `Why is planning health critical at ${ctx.planningHealth}/100?`, relevance: 95, category: "health" });
-  } else if (ctx.planningHealth < 60) {
-    candidates.push({ text: `Why is planning health at risk (${ctx.planningHealth}/100)?`, relevance: 85, category: "health" });
-  } else {
-    candidates.push({ text: "What is the current planning health?", relevance: 50, category: "health" });
-  }
-
-  // --- Trend / Forecast ---
-  if (ctx.trendDelta > 0) {
-    candidates.push({ text: `Why did forecast increase by +${ctx.trendDelta?.toLocaleString()} units?`, relevance: 80, category: "forecast" });
-  } else if (ctx.trendDelta < 0) {
-    candidates.push({ text: `Why did forecast decrease by ${ctx.trendDelta?.toLocaleString()} units?`, relevance: 80, category: "forecast" });
-  }
-  candidates.push({ text: "Where are we seeing new demand surges?", relevance: (ctx as any).kpis?.newDemandRatio > 5 ? 75 : 30, category: "forecast" });
-
-  // --- Supplier ---
-  if ((ctx.riskSummary?.supplierChangedCount ?? 0) > 0) {
-    candidates.push({ text: "Which suppliers are appearing in changed records?", relevance: 80, category: "supplier" });
-    candidates.push({ text: "Which supplier has the most frequent design changes?", relevance: 70, category: "supplier" });
-    if (ctx.drivers?.supplier) {
-      candidates.push({ text: `Why is supplier ${ctx.drivers.supplier} risky?`, relevance: 85, category: "supplier" });
-    }
-  }
-  candidates.push({ text: "Where is forecast increase not matched by supplier readiness?", relevance: ctx.supplierSummary?.changed > 0 ? 65 : 20, category: "supplier" });
-
-  // --- Design Changes ---
-  if ((ctx.riskSummary?.designChangedCount ?? 0) > 0) {
-    candidates.push({ text: "Which materials have BOD or Form Factor changes?", relevance: 85, category: "design" });
-    candidates.push({ text: "Which supplier has the most design changes?", relevance: 70, category: "design" });
-  }
-
-  // --- ROJ / Schedule ---
-  if ((ctx.riskSummary?.rojChangedCount ?? 0) > 0) {
-    candidates.push({ text: "Which locations have ROJ delays?", relevance: 80, category: "schedule" });
-    candidates.push({ text: "Which supplier is failing to meet ROJ need-by dates?", relevance: 75, category: "schedule" });
-  }
-
-  // --- Location ---
-  const topLoc = (ctx.datacenterSummary ?? []).sort((a, b) => b.changed - a.changed)[0];
-  if (topLoc && topLoc.changed > 0) {
-    candidates.push({ text: `Why is ${topLoc.locationId} changing the most?`, relevance: 85, category: "location" });
-  }
-  candidates.push({ text: "Which locations need immediate planner attention?", relevance: 70, category: "location" });
-
-  // --- Material Group ---
-  const topMg = (ctx.materialGroupSummary ?? []).sort((a, b) => b.changed - a.changed)[0];
-  if (topMg && topMg.changed > 0) {
-    candidates.push({ text: `Why is ${topMg.materialGroup} the most impacted group?`, relevance: 75, category: "material" });
-  }
-
-  // --- Risk / Action ---
-  if ((ctx.highRiskRecordCount ?? 0) > 0) {
-    candidates.push({ text: "Which records are highest risk right now?", relevance: 90, category: "risk" });
-  }
-  candidates.push({ text: "What are the top planner actions for this cycle?", relevance: 75, category: "action" });
-  candidates.push({ text: "Which issues are likely to escalate?", relevance: 60, category: "action" });
-
-  // --- Provenance ---
-  candidates.push({ text: "What data source is being used?", relevance: 20, category: "provenance" });
-
-  // --- Comparison ---
-  const topLocs2 = (ctx.datacenterSummary ?? []).sort((a, b) => b.changed - a.changed);
-  if (topLocs2.length >= 2) {
-    candidates.push({ text: `Compare ${topLocs2[0].locationId} vs ${topLocs2[1].locationId}`, relevance: 70, category: "comparison" });
-  }
-
-  // --- Traceability ---
-  candidates.push({ text: "Show top contributing records", relevance: 55, category: "traceability" });
-
-  // Sort by relevance, pick top 6, ensure category diversity
-  return selectDiversePrompts(candidates, 6);
-}
-
-function buildEntityPrompts(ctx: DashboardContext, entity: { type: string; item: string }): string[] {
-  const { type, item } = entity;
-  const candidates: PromptCandidate[] = [];
-
-  // Universal entity prompts
-  candidates.push({ text: `Why is ${item} showing changes?`, relevance: 90, category: "summary" });
-  candidates.push({ text: `What is the risk level for ${item}?`, relevance: 85, category: "risk" });
-  candidates.push({ text: `What actions should be taken for ${item}?`, relevance: 80, category: "action" });
-
-  if (type === "location") {
-    candidates.push({ text: `Which material groups changed at ${item}?`, relevance: 85, category: "material" });
-    candidates.push({ text: `Which suppliers are impacted at ${item}?`, relevance: 75, category: "supplier" });
-    if ((ctx.riskSummary?.rojChangedCount ?? 0) > 0) {
-      candidates.push({ text: `Are there ROJ delays at ${item}?`, relevance: 80, category: "schedule" });
-    }
-    if ((ctx.riskSummary?.designChangedCount ?? 0) > 0) {
-      candidates.push({ text: `Any design changes at ${item}?`, relevance: 75, category: "design" });
-    }
-    candidates.push({ text: `Is ${item} a change hotspot?`, relevance: 65, category: "summary" });
-  }
-
-  if (type === "material") {
-    candidates.push({ text: `Which locations are affected by ${item}?`, relevance: 85, category: "location" });
-    candidates.push({ text: `Is ${item} demand-driven or design-driven?`, relevance: 80, category: "forecast" });
-    if ((ctx.riskSummary?.designChangedCount ?? 0) > 0) {
-      candidates.push({ text: `Any BOD or Form Factor changes in ${item}?`, relevance: 80, category: "design" });
-    }
-    candidates.push({ text: `Is ${item} demand-driven or design-driven?`, relevance: 65, category: "summary" });
-  }
-
-  if (type === "supplier") {
-    candidates.push({ text: `Is ${item} reliable?`, relevance: 85, category: "supplier" });
-    candidates.push({ text: `What materials does ${item} impact?`, relevance: 80, category: "material" });
-    candidates.push({ text: `Is ${item} meeting ROJ need-by dates?`, relevance: 75, category: "schedule" });
-    candidates.push({ text: `Does ${item} have design change issues?`, relevance: 70, category: "design" });
-    candidates.push({ text: `Which locations depend on ${item}?`, relevance: 70, category: "location" });
-  }
-
-  if (type === "risk") {
-    candidates.push({ text: `Which locations have ${item}?`, relevance: 85, category: "location" });
-    candidates.push({ text: `Which suppliers contribute to ${item}?`, relevance: 80, category: "supplier" });
-    candidates.push({ text: `How many records are classified as ${item}?`, relevance: 75, category: "summary" });
-    candidates.push({ text: `Show top records with ${item}`, relevance: 65, category: "traceability" });
-  }
-
-  return selectDiversePrompts(candidates, 6);
-}
-
-function selectDiversePrompts(candidates: PromptCandidate[], maxCount: number): string[] {
-  // Sort by relevance descending
-  const sorted = [...candidates].sort((a, b) => b.relevance - a.relevance);
-  const selected: PromptCandidate[] = [];
-  const usedCategories = new Set<string>();
-
-  // First pass: pick highest relevance per category
-  for (const c of sorted) {
-    if (selected.length >= maxCount) break;
-    if (!usedCategories.has(c.category)) {
-      selected.push(c);
-      usedCategories.add(c.category);
-    }
-  }
-
-  // Second pass: fill remaining slots with highest relevance regardless of category
-  for (const c of sorted) {
-    if (selected.length >= maxCount) break;
-    if (!selected.includes(c)) {
-      selected.push(c);
-    }
-  }
-
-  return selected.map(c => c.text);
-}
 
 // ---------------------------------------------------------------------------
 // Follow-up suggestions
+// (Extracted to utils/promptGenerator.ts)
 // ---------------------------------------------------------------------------
-function buildFollowUps(question: string, ctx: DashboardContext, entity?: { type: string; item: string } | null): string[] {
-  const q = question.toLowerCase();
-  const suggestions: string[] = [];
-  if (q.includes("health") || q.includes("critical")) {
-    suggestions.push("What is driving the risk?", "Which locations are most impacted?", "What actions should be taken?");
-  } else if (q.includes("change") || q.includes("driver")) {
-    suggestions.push("Is this demand-driven or design-driven?", "Show top risk areas", "What should the planner do?");
-  } else if (q.includes("supplier")) {
-    suggestions.push("Which materials are affected?", "Is there a schedule delay?", "What is the supplier reliability?");
-  } else if (q.includes("location") || q.includes("datacenter")) {
-    suggestions.push("Which material groups changed here?", "What is the forecast delta?", "Any design changes?");
-  } else if (q.includes("forecast") || q.includes("demand")) {
-    suggestions.push("Is this a spike or a trend?", "Which locations drive the increase?", "What actions are recommended?");
-  } else if (q.includes("design") || q.includes("bod")) {
-    suggestions.push("Which materials have design changes?", "Is this BOD or Form Factor?", "What is the procurement impact?");
-  } else {
-    suggestions.push("What changed most?", "Show KPI summary", "What should the planner do next?");
-  }
-  return suggestions.slice(0, 3);
-}
 
 // ---------------------------------------------------------------------------
 // Greeting
+// (Extracted to utils/answerGenerator.ts)
 // ---------------------------------------------------------------------------
-function buildGreeting(ctx: DashboardContext, entity?: { type: string; item: string } | null): string {
-  const mockNote = ctx.dataMode === "mock" ? "\n⚠️ Running in test mode using mock data.\n" : "";
-  if (entity) {
-    return (
-      `🔍 Focused on ${contextLabel(entity)}\n${mockNote}\n` +
-      `📊 Health: ${ctx.planningHealth}/100 (${ctx.status})\n` +
-      `📦 Changed: ${ctx.changedRecordCount} of ${ctx.totalRecords}\n` +
-      `⚠️ Risk: ${ctx.riskSummary?.level ?? "N/A"}\n\n` +
-      `Ask me about this ${entity.type} — why it changed, risk level, or recommended actions.`
-    );
-  }
-  const insight = ctx.aiInsight ? ctx.aiInsight.slice(0, 150) + (ctx.aiInsight.length > 150 ? "…" : "") : "N/A";
-  return (
-    `📊 Planning Copilot — ${ctx.dataMode === "mock" ? "Mock Mode" : "Blob-backed Analysis"}\n${mockNote}\n` +
-    `Health: ${ctx.planningHealth}/100 (${ctx.status})\n` +
-    `Changed: ${ctx.changedRecordCount} of ${ctx.totalRecords} records\n` +
-    `Risk: ${ctx.riskSummary?.level ?? "N/A"} | Trend: ${ctx.trendDirection}\n` +
-    `Forecast: ${ctx.forecastNew?.toLocaleString()} (Δ ${ctx.trendDelta >= 0 ? "+" : ""}${ctx.trendDelta?.toLocaleString()})\n\n` +
-    `${insight}\n\n` +
-    `Ask me anything about the current planning cycle.`
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Enhanced fallback answer engine
+// (Extracted to utils/answerGenerator.ts)
 // ---------------------------------------------------------------------------
-function buildFallbackAnswer(question: string, ctx: DashboardContext, entity?: { type: string; item: string } | null): string {
-  const q = question.toLowerCase();
-  const pct = ctx.totalRecords > 0 ? ((ctx.changedRecordCount / ctx.totalRecords) * 100).toFixed(1) : "0";
-  const details = (ctx as any).detailRecords ?? [];
-
-  // Entity-scoped filtering
-  const entityDetails = entity ? filterDetailsByEntity(details, entity) : details;
-  const entityChanged = entityDetails.filter((r: any) => r.qtyChanged || r.supplierChanged || r.designChanged || r.rojChanged);
-
-  // Health
-  if (q.includes("health") || q.includes("critical") || q.includes("score")) {
-    const contrib = (ctx as any).contributionBreakdown;
-    let breakdown = "";
-    if (contrib) breakdown = `\n\nBreakdown: Qty ${contrib.quantity}%, Supplier ${contrib.supplier}%, Design ${contrib.design}%, Schedule ${contrib.schedule}%`;
-    return `📊 Answer: Planning health is ${ctx.planningHealth}/100 (${ctx.status}).\n📈 Evidence: ${pct}% of records changed (${ctx.changedRecordCount}/${ctx.totalRecords}). Risk: ${ctx.riskSummary?.highestRiskLevel ?? "Normal"}.${breakdown}\n🎯 Scope: ${ctx.datacenterCount ?? 0} locations, ${(ctx.materialGroups ?? []).length} material groups.\n→ Action: ${(ctx.recommendedActions ?? [])[0] ?? "Review planning cycle."}`;
-  }
-
-  // Changes
-  if (q.includes("changed") || q.includes("what changed") || q.includes("most")) {
-    const topLoc = (ctx.datacenterSummary ?? []).sort((a, b) => b.changed - a.changed)[0];
-    const topMg = (ctx.materialGroupSummary ?? []).sort((a, b) => b.changed - a.changed)[0];
-    return `📊 Answer: ${ctx.changedRecordCount} records changed (${pct}%).\n📈 Evidence: Primary driver: ${ctx.drivers?.changeType ?? "N/A"}. Top location: ${topLoc?.locationId ?? "N/A"} (${topLoc?.changed ?? 0} changed). Top material group: ${topMg?.materialGroup ?? "N/A"} (${topMg?.changed ?? 0} changed).\n🎯 Scope: ${ctx.drivers?.location ?? "N/A"} is the main source.\n→ Action: ${(ctx.recommendedActions ?? [])[0] ?? "Review changes."}`;
-  }
-
-  // Forecast / demand / trend
-  if (q.includes("forecast") || q.includes("demand") || q.includes("increase") || q.includes("decrease") || q.includes("trend")) {
-    return `📊 Answer: Forecast is ${ctx.trendDirection} with delta of ${ctx.trendDelta >= 0 ? "+" : ""}${ctx.trendDelta?.toLocaleString()} units.\n📈 Evidence: Current: ${ctx.forecastNew?.toLocaleString()}, Previous: ${ctx.forecastOld?.toLocaleString()}.\n🎯 Scope: Affects ${ctx.changedRecordCount} records across ${ctx.datacenterCount ?? 0} locations.\n→ Action: ${ctx.trendDelta > 0 ? "Confirm capacity for increased demand." : "Review downward trend for inventory adjustment."}`;
-  }
-
-  // Location
-  if (q.includes("location") || q.includes("datacenter") || q.includes("site")) {
-    const topLocs = (ctx.datacenterSummary ?? []).sort((a, b) => b.changed - a.changed).slice(0, 3);
-    const locList = topLocs.map(d => `${d.locationId}: ${d.changed}/${d.total} changed`).join("\n  ");
-    return `📊 Answer: ${ctx.datacenterCount ?? 0} locations in scope.\n📈 Evidence:\n  ${locList || "N/A"}\n🎯 Scope: Top location: ${ctx.drivers?.location ?? "N/A"}.\n→ Action: Prioritize review for highest-change locations.`;
-  }
-
-  // Material group
-  if (q.includes("material") || q.includes("group") || q.includes("category") || q.includes("equipment")) {
-    const topMgs = (ctx.materialGroupSummary ?? []).sort((a, b) => b.changed - a.changed).slice(0, 3);
-    const mgList = topMgs.map(g => `${g.materialGroup}: ${g.changed}/${g.total} (Qty:${g.qtyChanged} Design:${g.designChanged} Supplier:${g.supplierChanged})`).join("\n  ");
-    return `📊 Answer: ${(ctx.materialGroups ?? []).length} material groups tracked.\n📈 Evidence:\n  ${mgList || "N/A"}\n→ Action: Focus on groups with highest design or supplier changes.`;
-  }
-
-  // Supplier
-  if (q.includes("supplier") || q.includes("reliable") || q.includes("reliability")) {
-    return `📊 Answer: ${ctx.supplierSummary?.changed ?? 0} supplier changes detected.\n📈 Evidence: Top supplier: ${ctx.drivers?.supplier ?? "N/A"}.\n🎯 Scope: ${ctx.riskSummary?.supplierChangedCount ?? 0} records with supplier transitions.\n→ Action: Validate supplier transition plans to avoid disruption.`;
-  }
-
-  // Risk
-  if (q.includes("risk") || q.includes("high risk")) {
-    const breakdown = ctx.riskSummary?.riskBreakdown ?? {};
-    const riskList = Object.entries(breakdown).map(([k, v]) => `${k}: ${v}`).join(", ");
-    return `📊 Answer: Risk level is ${ctx.riskSummary?.level ?? "N/A"} (${ctx.riskSummary?.highestRiskLevel ?? "Normal"}).\n📈 Evidence: ${ctx.highRiskRecordCount ?? 0} high-risk records. Breakdown: ${riskList || "None"}.\n→ Action: Review high-risk records for procurement and supply impact.`;
-  }
-
-  // Design / BOD / Form Factor
-  if (q.includes("design") || q.includes("bod") || q.includes("form factor")) {
-    return `📊 Answer: Design status: ${ctx.designSummary?.status ?? "N/A"}.\n📈 Evidence: BOD changes: ${ctx.designSummary?.bodChangedCount ?? 0}, Form Factor changes: ${ctx.designSummary?.formFactorChangedCount ?? 0}.\n🎯 Scope: ${ctx.riskSummary?.designChangedCount ?? 0} records affected.\n→ Action: Review BOD/FF changes with engineering before procurement.`;
-  }
-
-  // Schedule / ROJ
-  if (q.includes("schedule") || q.includes("roj") || q.includes("delay")) {
-    return `📊 Answer: ROJ status: ${ctx.rojSummary?.status ?? "N/A"}.\n📈 Evidence: ${ctx.rojSummary?.changedCount ?? 0} schedule changes detected. ${ctx.riskSummary?.rojChangedCount ?? 0} ROJ records shifted.\n→ Action: Review ROJ date shifts with supply chain team.`;
-  }
-
-  // Actions
-  if (q.includes("action") || q.includes("planner") || q.includes("do next") || q.includes("recommend")) {
-    const actions = ctx.recommendedActions ?? [];
-    return actions.length > 0
-      ? `📊 Recommended Actions:\n${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}`
-      : "No specific actions recommended at this time.";
-  }
-
-  // New demand
-  if (q.includes("new demand") || q.includes("new record")) {
-    return `📊 Answer: New demand detected in this cycle.\n📈 Evidence: Check records flagged as new demand in detail view.\n→ Action: Establish baseline planning parameters for new materials.`;
-  }
-
-  // Cancellation
-  if (q.includes("cancel")) {
-    return `📊 Answer: Cancellation trends detected.\n📈 Evidence: Check records flagged as cancelled in detail view.\n→ Action: Review cancellation impact on supply commitments.`;
-  }
-
-  // Data source / provenance
-  if (q.includes("blob") || q.includes("file") || q.includes("source") || q.includes("data") || q.includes("mock")) {
-    const isMock = ctx.dataMode === "mock";
-    return `📊 Data Source: ${isMock ? "⚠️ Mock/testing data" : "Azure Blob Storage (production)"}.\nMode: ${ctx.dataMode}\nLast refreshed: ${ctx.lastRefreshedAt ?? "N/A"}.\n${isMock ? "→ Connect to Blob Storage for real insights." : "→ Data is blob-derived and current."}`;
-  }
-
-  // KPI summary
-  if (q.includes("kpi") || q.includes("metric") || q.includes("summary")) {
-    return `📊 KPI Summary:\nHealth: ${ctx.planningHealth}/100 (${ctx.status})\nChanged: ${ctx.changedRecordCount}/${ctx.totalRecords} (${pct}%)\nForecast Delta: ${ctx.trendDelta >= 0 ? "+" : ""}${ctx.trendDelta?.toLocaleString()}\nTrend: ${ctx.trendDirection}\nRisk: ${ctx.riskSummary?.level ?? "N/A"}\nLocations: ${ctx.datacenterCount ?? 0}\nMaterial Groups: ${(ctx.materialGroups ?? []).length}`;
-  }
-
-  // Default
-  return `📊 ${ctx.aiInsight ?? "No insight available."}\n\n📈 Root Cause: ${ctx.rootCause ?? "N/A"}\n\n→ Actions:\n${(ctx.recommendedActions ?? []).map(a => `• ${a}`).join("\n")}`;
-}
-
-function filterDetailsByEntity(details: any[], entity: { type: string; item: string }): any[] {
-  const { type, item } = entity;
-  if (type === "location") return details.filter((r: any) => r.locationId === item);
-  if (type === "material") return details.filter((r: any) => r.materialGroup === item);
-  if (type === "supplier") return details.filter((r: any) => r.supplier === item);
-  if (type === "risk") return details.filter((r: any) => r.riskLevel === item);
-  return details;
-}
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -393,10 +90,10 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
       setLoading(false);
       setInput(question.trim());
       setMessages((prev) => [...prev, { role: "assistant", content: "⏱ Request timed out. Your question has been preserved — please try again.", timestamp: Date.now() }]);
-    }, 6000);
+    }, 35000);
 
     try {
-      const res = await fetchExplain({ question: question.trim(), context });
+      const res = await fetchExplain({ question: question.trim(), context: { ...context, detailRecords: context.detailRecords || [] } });
       clearTimeout(timeoutId);
       const answer = res.answer || res.aiInsight || buildFallbackAnswer(question, context, selectedEntity);
       const followUps = (res as any).followUpQuestions || buildFollowUps(question, context, selectedEntity);
