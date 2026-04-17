@@ -41,7 +41,7 @@ class LLMService:
         self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
         self.temperature = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
         self.max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "500"))
-        self.timeout = int(os.getenv("OPENAI_TIMEOUT", "30"))
+        self.timeout = int(os.getenv("OPENAI_TIMEOUT", "120"))  # 120 seconds - matches Ollama timeout
         
         # Initialize OpenAI client only if API key is available and not using mock
         self.client = None

@@ -1,17 +1,21 @@
 """
-Planning Intelligence Azure Functions - Cleaned Version
+Planning Intelligence Azure Functions - Ollama Integration
 Minimal endpoints for production use:
 - planning-dashboard-v2: Blob-backed dashboard
 - planning_intelligence_nlp: NLP query processing
 - explain: Explainability endpoint
 - debug-snapshot: Debug endpoint
 - daily-refresh: Background refresh
+
+LLM Integration: Uses Ollama (local models) instead of Azure OpenAI
+Models supported: Mistral, Llama 2, Neural Chat
 """
 
 import json
 import logging
 from typing import Optional, List
 import azure.functions as func
+import os
 
 from normalizer import normalize_rows
 from filters import filter_records
@@ -29,8 +33,100 @@ from copilot_helpers import (
     get_unique_materials,
     get_impact_ranking
 )
+from context_optimizer import extract_record_keys
+
+# Import Ollama service
+try:
+    from ollama_llm_service import get_ollama_service
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Ollama service not available, will use fallback responses")
+
+# Fallback to Azure OpenAI if Ollama not available
+if not OLLAMA_AVAILABLE:
+    try:
+        from llm_service import get_llm_service
+        AZURE_AVAILABLE = True
+    except ImportError:
+        AZURE_AVAILABLE = False
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# LLM SERVICE HELPER
+# ============================================================================
+
+def get_llm_service():
+    """
+    Get LLM service - tries Ollama first, falls back to Azure OpenAI
+    
+    Returns:
+        LLM service instance (Ollama or Azure)
+    
+    Raises:
+        Exception if neither Ollama nor Azure is available
+    """
+    
+    # Try Ollama first (local, no API costs)
+    if OLLAMA_AVAILABLE:
+        try:
+            model = os.getenv("OLLAMA_MODEL", "mistral")
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            timeout = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # 120 seconds default
+            service = get_ollama_service(model=model, base_url=base_url, timeout=timeout)
+            
+            # Check if Ollama is available
+            if service.is_available():
+                logger.info(f"Using Ollama service with model: {model}")
+                return service
+            else:
+                logger.warning("Ollama not available, trying Azure OpenAI")
+        except Exception as e:
+            logger.warning(f"Ollama service error: {e}, trying Azure OpenAI")
+    
+    # Fallback to Azure OpenAI
+    if AZURE_AVAILABLE:
+        try:
+            service = get_llm_service()
+            logger.info("Using Azure OpenAI service")
+            return service
+        except Exception as e:
+            logger.error(f"Azure OpenAI service error: {e}")
+            raise Exception("No LLM service available (Ollama and Azure OpenAI both failed)")
+    
+    raise Exception("No LLM service available (Ollama and Azure OpenAI not configured)")
+
+
+# ============================================================================
+# SUPPORTING METRICS HELPER
+# ============================================================================
+
+def _build_supporting_metrics(detail_records: list, context: dict, **kwargs) -> dict:
+    """
+    Build standardized supporting metrics for all answer functions.
+    Ensures consistent structure for frontend display.
+    """
+    total = len(detail_records)
+    changed = sum(1 for r in detail_records if r.get("changed"))
+    
+    metrics = {
+        "planningHealth": context.get("planningHealth", 0),
+        "changedRecordCount": changed,
+        "totalRecords": total,
+        "trendDelta": context.get("trendDelta", 0),
+        "status": context.get("status", "Unknown"),
+        "trendDirection": context.get("trendDirection", "Stable"),
+    }
+    
+    # Add any additional metrics passed in
+    metrics.update(kwargs)
+    
+    return metrics
 
 
 # ============================================================================
@@ -364,20 +460,75 @@ def planning_dashboard_v2(req: func.HttpRequest) -> func.HttpResponse:
     return _cors_response(json.dumps(result, default=str))
 
 
-@app.route(route="daily-refresh", methods=["POST", "OPTIONS"])
-def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="initialize-copilot", methods=["POST", "OPTIONS"])
+def initialize_copilot(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Triggers daily refresh from Azure Blob Storage and saves a snapshot.
+    Initialize copilot with LLM analysis of the full dataset.
+    Called once when the UI loads to cache the LLM's analysis.
+    Subsequent questions will use this cached analysis for fast responses.
     """
     if req.method == "OPTIONS":
         return _cors_response("", 200)
     
-    logging.info("Daily refresh triggered — loading from Blob Storage.")
+    logging.info("Initializing copilot with LLM analysis...")
+    
+    try:
+        # Load snapshot with all data
+        snap = load_snapshot()
+        if not snap:
+            return _error("No snapshot available. Run daily-refresh first.", 404)
+        
+        detail_records = snap.get("detailRecords", [])
+        if not detail_records:
+            return _error("No detail records in snapshot.", 404)
+        
+        logging.info(f"Generating initial LLM analysis for {len(detail_records)} records...")
+        
+        # Generate initial analysis
+        from llm_analysis_cache import generate_initial_analysis, set_cached_analysis
+        llm_service = get_llm_service()
+        analysis = generate_initial_analysis(llm_service, detail_records, snap)
+        
+        # Cache the analysis
+        snapshot_date = snap.get("lastRefreshedAt", "current")
+        set_cached_analysis(snapshot_date, analysis)
+        
+        logging.info("Copilot initialization complete")
+        
+        return _cors_response(json.dumps({
+            "status": "initialized",
+            "message": "Copilot analysis cached and ready",
+            "analysisLength": len(analysis),
+            "recordsAnalyzed": len(detail_records),
+            "timestamp": snapshot_date
+        }, default=str))
+    
+    except Exception as e:
+        error_msg = f"Copilot initialization failed: {str(e)}"
+        logging.error(error_msg)
+        return _error(error_msg, 500)
+
+
+@app.route(route="daily-refresh", methods=["POST", "OPTIONS"])
+def daily_refresh(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Triggers daily refresh from CSV files (or Blob Storage if CSV_USE_BLOB=true).
+    Loads planning data, runs analytics pipeline, and saves snapshot.
+    """
+    if req.method == "OPTIONS":
+        return _cors_response("", 200)
+    
+    # Check if we should use Blob Storage instead of CSV
+    use_csv = os.environ.get("CSV_USE_BLOB", "false").lower() != "true"
+    data_source = "CSV files" if use_csv else "Blob Storage"
+    
+    logging.info(f"Daily refresh triggered — loading from {data_source}.")
     try:
         from run_daily_refresh import run_daily_refresh
-        result = run_daily_refresh()
+        result = run_daily_refresh(use_csv=use_csv)
         return _cors_response(json.dumps({
             "status": "ok",
+            "dataSource": data_source,
             "lastRefreshedAt": result.get("lastRefreshedAt"),
             "totalRecords": result.get("totalRecords"),
             "changedRecordCount": result.get("changedRecordCount"),
@@ -487,7 +638,7 @@ def classify_question(question: str) -> str:
 
 
 def generate_health_answer(detail_records: list, context: dict, use_llm: bool = True) -> dict:
-    """Generate answer for health-related questions"""
+    """Generate answer for health-related questions using cached LLM analysis"""
     health = context.get("planningHealth", 0)
     status = context.get("status", "Unknown")
     total = len(detail_records)
@@ -509,15 +660,35 @@ def generate_health_answer(detail_records: list, context: dict, use_llm: bool = 
         "designChanges": design_changes,
         "supplierChanges": supplier_changes,
         "trendDirection": context.get("trendDirection", "Stable"),
+        "trendDelta": context.get("trendDelta", 0),
         "riskLevel": risk_summary.get("level", "Unknown")
     }
     
-    # Try to use LLM with blob data context
+    # Use cached analysis if available
     if use_llm:
         try:
-            from generative_responses import GenerativeResponseBuilder
-            builder = GenerativeResponseBuilder(use_llm=True, detail_records=detail_records)
-            answer = builder.build_health_response(supporting_metrics)
+            from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis for fast response
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(
+                    "What is the current planning health status?",
+                    cached_analysis,
+                    context
+                )
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=supporting_metrics,
+                    detail_records=None
+                )
+            else:
+                # Fallback if no cached analysis
+                logging.warning("No cached analysis available, using template.")
+                answer = f"Planning health is {health}/100 ({status}). {changed:,} of {total:,} records have changed ({pct_changed:.1f}%). "
+                answer += f"Primary drivers: Design changes ({design_changes}), Supplier changes ({supplier_changes})."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Planning health is {health}/100 ({status}). {changed:,} of {total:,} records have changed ({pct_changed:.1f}%). "
@@ -533,7 +704,9 @@ def generate_health_answer(detail_records: list, context: dict, use_llm: bool = 
 
 
 def generate_forecast_answer(detail_records: list, context: dict, question: str = "", use_llm: bool = True) -> dict:
-    """Generate answer for forecast-related questions"""
+    """Generate answer for forecast-related questions using cached LLM analysis"""
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
+    
     forecast_new = context.get("forecastNew", 0)
     forecast_old = context.get("forecastOld", 0)
     delta = context.get("trendDelta", 0)
@@ -541,22 +714,26 @@ def generate_forecast_answer(detail_records: list, context: dict, question: str 
     
     pct_change = (delta / forecast_old * 100) if forecast_old > 0 else 0
     
-    # Try to use LLM with blob data context
+    # Try to use cached LLM analysis
     if use_llm:
         try:
-            from generative_responses import GenerativeResponseBuilder
-            metrics = {
-                "forecastNew": forecast_new,
-                "forecastOld": forecast_old,
-                "trendDelta": delta,
-                "trendDirection": trend,
-                "percentChange": pct_change,
-                "qtyChangedCount": sum(1 for r in detail_records if r.get("qtyChanged")),
-                "totalQtyDelta": delta,
-                "averageQtyDelta": delta / len(detail_records) if detail_records else 0
-            }
-            builder = GenerativeResponseBuilder(use_llm=True, detail_records=detail_records)
-            answer = builder.build_forecast_response(metrics)
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question or "What is the forecast for the next period?", cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = f"Current forecast is {forecast_new:,.0f} units. Previous was {forecast_old:,.0f} units. "
+                answer += f"Change: {delta:+,.0f} units ({pct_change:+.1f}%). Trend: {trend}."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Current forecast is {forecast_new:,.0f} units. Previous was {forecast_old:,.0f} units. "
@@ -567,18 +744,19 @@ def generate_forecast_answer(detail_records: list, context: dict, question: str 
     
     return {
         "answer": answer,
-        "supportingMetrics": {
-            "forecastNew": forecast_new,
-            "forecastOld": forecast_old,
-            "trendDelta": delta,
-            "trendDirection": trend,
-            "percentChange": pct_change
-        }
+        "supportingMetrics": _build_supporting_metrics(
+            detail_records, context,
+            forecastNew=forecast_new,
+            forecastOld=forecast_old,
+            percentChange=pct_change
+        )
     }
 
 
 def generate_risk_answer(detail_records: list, context: dict, use_llm: bool = True) -> dict:
-    """Generate answer for risk-related questions"""
+    """Generate answer for risk-related questions using cached LLM analysis"""
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
+    
     risk_summary = context.get("riskSummary", {})
     level = risk_summary.get("level", "Unknown")
     highest = risk_summary.get("highestRiskLevel", "Unknown")
@@ -587,20 +765,33 @@ def generate_risk_answer(detail_records: list, context: dict, use_llm: bool = Tr
     
     pct_high_risk = (high_risk_count / total * 100) if total > 0 else 0
     
-    # Try to use LLM with blob data context
+    # Try to use cached LLM analysis
     if use_llm:
         try:
-            from generative_responses import GenerativeResponseBuilder
-            metrics = {
-                "riskLevel": level,
-                "highestRiskLevel": highest,
-                "highRiskCount": high_risk_count,
-                "totalRecords": total,
-                "percentHighRisk": pct_high_risk,
-                "riskBreakdown": risk_summary.get("riskBreakdown", {})
-            }
-            builder = GenerativeResponseBuilder(use_llm=True, detail_records=detail_records)
-            answer = builder.build_risk_response(metrics)
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis("What are the top risks in our supply chain?", cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = f"Risk level is {level}. "
+                answer += f"Highest risk type: {highest}. "
+                answer += f"{high_risk_count:,} high-risk records out of {total:,} total ({pct_high_risk:.1f}%). "
+                breakdown = risk_summary.get("riskBreakdown", {})
+                if breakdown:
+                    answer += f"Breakdown: "
+                    for risk_type, count in breakdown.items():
+                        answer += f"{risk_type} ({count}), "
+                    answer = answer.rstrip(", ") + "."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Risk level is {level}. "
@@ -625,20 +816,20 @@ def generate_risk_answer(detail_records: list, context: dict, use_llm: bool = Tr
     
     return {
         "answer": answer,
-        "supportingMetrics": {
-            "riskLevel": level,
-            "highestRiskLevel": highest,
-            "highRiskCount": high_risk_count,
-            "totalRecords": total,
-            "percentHighRisk": pct_high_risk,
-            "riskBreakdown": risk_summary.get("riskBreakdown", {})
-        }
+        "supportingMetrics": _build_supporting_metrics(
+            detail_records, context,
+            riskLevel=level,
+            highestRiskLevel=highest,
+            highRiskCount=high_risk_count,
+            percentHighRisk=pct_high_risk,
+            riskBreakdown=risk_summary.get("riskBreakdown", {})
+        )
     }
 
 
 def generate_change_answer(detail_records: list, context: dict) -> dict:
-    """Generate answer for change-related questions using LLM with full blob context"""
-    from llm_service import get_llm_service
+    """Generate answer for change-related questions using cached LLM analysis"""
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     total = len(detail_records)
     changed = sum(1 for r in detail_records if r.get("changed"))
@@ -650,24 +841,25 @@ def generate_change_answer(detail_records: list, context: dict) -> dict:
     
     pct_changed = (changed / total * 100) if total > 0 else 0
     
-    # Build context for LLM
-    change_context = {
-        "changedRecordCount": changed,
-        "totalRecords": total,
-        "percentChanged": pct_changed,
-        "designChanges": design_changes,
-        "supplierChanges": supplier_changes,
-        "quantityChanges": quantity_changes
-    }
-    
-    # Try to use LLM with full blob context
+    # Try to use cached LLM analysis
     try:
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt="How many records have changed?",
-            context=change_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
+        
+        if cached_analysis:
+            # Use cached analysis
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis("How many records have changed?", cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to template if no cached analysis
+            logging.warning("No cached analysis available, using template")
+            answer = f"{changed:,} records have changed out of {total:,} total ({pct_changed:.1f}%). "
+            answer += f"Breakdown: Design ({design_changes}), Supplier ({supplier_changes}), Quantity ({quantity_changes})."
     except Exception as e:
         logging.warning(f"LLM generation failed: {str(e)}. Using template.")
         answer = f"{changed:,} records have changed out of {total:,} total ({pct_changed:.1f}%). "
@@ -675,14 +867,13 @@ def generate_change_answer(detail_records: list, context: dict) -> dict:
     
     return {
         "answer": answer,
-        "supportingMetrics": {
-            "changedRecordCount": changed,
-            "totalRecords": total,
-            "percentChanged": pct_changed,
-            "designChanges": design_changes,
-            "supplierChanges": supplier_changes,
-            "quantityChanges": quantity_changes
-        }
+        "supportingMetrics": _build_supporting_metrics(
+            detail_records, context,
+            percentChanged=pct_changed,
+            designChanges=design_changes,
+            supplierChanges=supplier_changes,
+            quantityChanges=quantity_changes
+        )
     }
 
 
@@ -697,82 +888,58 @@ def generate_general_answer(detail_records: list, context: dict) -> dict:
     
     return {
         "answer": answer,
-        "supportingMetrics": {
-            "planningHealth": health,
-            "changedRecordCount": changed,
-            "totalRecords": total
-        }
+        "supportingMetrics": _build_supporting_metrics(detail_records, context)
     }
 
 
 def generate_greeting_answer(detail_records: list, context: dict, question: str) -> dict:
     """
-    Generate greeting answer using ChatGPT with full blob context.
+    Generate greeting answer using cached LLM analysis.
     Routes simple greetings to LLM for natural, conversational responses.
-    Passes complete detail_records so ChatGPT understands the full data context.
     """
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
+    
     try:
-        from llm_service import get_llm_service
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
         
-        # Build context with all available metrics
-        health = context.get("planningHealth", 0)
-        total = len(detail_records)
-        changed = sum(1 for r in detail_records if r.get("changed"))
-        
-        # Create comprehensive context for LLM
-        greeting_context = {
-            "planningHealth": health,
-            "totalRecords": total,
-            "changedRecords": changed,
-            "changeRate": round((changed / total * 100) if total > 0 else 0, 1),
-            # Include all available context from the dashboard
-            "drivers": context.get("drivers", {}),
-            "riskSummary": context.get("riskSummary", {}),
-            "supplierSummary": context.get("supplierSummary", {}),
-            "materialSummary": context.get("materialSummary", {})
-        }
-        
-        # Get LLM service and generate response with FULL detail_records
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt=question,
-            context=greeting_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        if cached_analysis:
+            # Use cached analysis for greeting
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis(question, cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to generic greeting if no cached analysis
+            logging.warning("No cached analysis available, using generic greeting")
+            answer = f"Hello! I'm your Planning Intelligence Copilot. "
+            answer += f"Currently, planning health is {context.get('planningHealth', 0)}/100. "
+            answer += "Ask me about health, forecast, risks, or changes for more details."
         
         return {
             "answer": answer,
-            "supportingMetrics": {
-                "planningHealth": health,
-                "changedRecordCount": changed,
-                "totalRecords": total
-            }
+            "supportingMetrics": _build_supporting_metrics(detail_records, context)
         }
     except Exception as e:
         logging.error(f"Error generating greeting answer: {str(e)}")
         # Fallback to generic greeting if LLM fails
-        health = context.get("planningHealth", 0)
-        total = len(detail_records)
-        changed = sum(1 for r in detail_records if r.get("changed"))
-        
         answer = f"Hello! I'm your Planning Intelligence Copilot. "
-        answer += f"Currently, planning health is {health}/100 with {changed:,} of {total:,} records changed. "
+        answer += f"Currently, planning health is {context.get('planningHealth', 0)}/100. "
         answer += "Ask me about health, forecast, risks, or changes for more details."
         
         return {
             "answer": answer,
-            "supportingMetrics": {
-                "planningHealth": health,
-                "changedRecordCount": changed,
-                "totalRecords": total
-            }
+            "supportingMetrics": _build_supporting_metrics(detail_records, context)
         }
 
 
 def generate_design_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for design change questions using LLM with full blob context"""
+    """Generate answer for design change questions using cached LLM analysis"""
     from copilot_helpers import get_records_by_change_type, get_unique_suppliers, get_unique_materials
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     design_records = get_records_by_change_type(detail_records, "design")
     if not design_records:
@@ -784,23 +951,28 @@ def generate_design_answer(detail_records: list, context: dict, question: str) -
     suppliers = get_unique_suppliers(design_records)
     materials = get_unique_materials(design_records)
     
-    # Build context for LLM
-    design_context = {
-        "designChangedCount": len(design_records),
-        "totalRecords": len(detail_records),
-        "affectedSuppliers": suppliers,
-        "affectedMaterials": materials,
-        "question": question
-    }
-    
-    # Try to use LLM with full blob context
+    # Try to use cached LLM analysis
     try:
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt=question,
-            context=design_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
+        
+        if cached_analysis:
+            # Use cached analysis
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis(question, cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to template if no cached analysis
+            logging.warning("No cached analysis available, using template")
+            answer = f"{len(design_records)} records have design changes (BOD or Form Factor). "
+            if suppliers:
+                answer += f"Affected suppliers: {', '.join(suppliers[:3])}. "
+            if materials:
+                answer += f"Affected materials: {', '.join(materials[:3])}."
     except Exception as e:
         logging.warning(f"LLM generation failed: {str(e)}. Using template.")
         answer = f"{len(design_records)} records have design changes (BOD or Form Factor). "
@@ -821,9 +993,9 @@ def generate_design_answer(detail_records: list, context: dict, question: str) -
 
 
 def generate_schedule_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for ROJ/schedule change questions using LLM with full blob context"""
+    """Generate answer for ROJ/schedule change questions using cached LLM analysis"""
     from copilot_helpers import compute_roi_metrics
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     schedule_records = [r for r in detail_records if r.get("rojChanged", False)]
     if not schedule_records:
@@ -834,22 +1006,26 @@ def generate_schedule_answer(detail_records: list, context: dict, question: str)
     
     metrics = compute_roi_metrics(schedule_records)
     
-    # Build context for LLM
-    schedule_context = {
-        "roiChangedCount": metrics.get("roiChangedCount", 0),
-        "totalRecords": len(detail_records),
-        "averageRoiDelta": metrics.get("averageRoiDelta", 0),
-        "question": question
-    }
-    
-    # Try to use LLM with full blob context
+    # Try to use cached LLM analysis
     try:
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt=question,
-            context=schedule_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
+        
+        if cached_analysis:
+            # Use cached analysis
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis(question, cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to template if no cached analysis
+            logging.warning("No cached analysis available, using template")
+            answer = f"{metrics['roiChangedCount']} records have ROJ schedule changes. "
+            if metrics['averageRoiDelta'] != 0:
+                answer += f"Average ROJ delta: {metrics['averageRoiDelta']} days."
     except Exception as e:
         logging.warning(f"LLM generation failed: {str(e)}. Using template.")
         answer = f"{metrics['roiChangedCount']} records have ROJ schedule changes. "
@@ -865,9 +1041,9 @@ def generate_schedule_answer(detail_records: list, context: dict, question: str)
 
 
 def generate_location_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for location-specific questions using LLM with full blob context"""
+    """Generate answer for location-specific questions using cached LLM analysis"""
     from copilot_helpers import extract_location_id, filter_records_by_location, get_top_locations_by_change
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     location_id = extract_location_id(question)
     
@@ -882,23 +1058,24 @@ def generate_location_answer(detail_records: list, context: dict, question: str)
         
         changed = sum(1 for r in location_records if r.get("changed"))
         
-        # Build context for LLM
-        location_context = {
-            "location": location_id,
-            "recordCount": len(location_records),
-            "changedCount": changed,
-            "changeRate": round((changed / len(location_records) * 100) if location_records else 0, 1),
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=location_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = f"Location {location_id}: {len(location_records)} records total, {changed} changed."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Location {location_id}: {len(location_records)} records total, {changed} changed."
@@ -920,21 +1097,25 @@ def generate_location_answer(detail_records: list, context: dict, question: str)
                 "supportingMetrics": {"topLocations": []}
             }
         
-        # Build context for LLM
-        location_context = {
-            "topLocations": top_locations,
-            "totalRecords": len(detail_records),
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=location_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = "Top locations by change count: "
+                answer += ", ".join([f"{loc[0]} ({loc[1]} changes)" for loc in top_locations]) + "."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = "Top locations by change count: "
@@ -947,9 +1128,9 @@ def generate_location_answer(detail_records: list, context: dict, question: str)
 
 
 def generate_material_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for material-specific questions using LLM with full blob context"""
+    """Generate answer for material-specific questions using cached LLM analysis"""
     from copilot_helpers import extract_material_id, filter_records_by_change_type, get_top_materials_by_change
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     material_id = extract_material_id(question)
     
@@ -964,23 +1145,24 @@ def generate_material_answer(detail_records: list, context: dict, question: str)
         
         changed = sum(1 for r in material_records if r.get("changed"))
         
-        # Build context for LLM
-        material_context = {
-            "material": material_id,
-            "recordCount": len(material_records),
-            "changedCount": changed,
-            "changeRate": round((changed / len(material_records) * 100) if material_records else 0, 1),
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=material_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = f"Material {material_id}: {len(material_records)} records total, {changed} changed."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Material {material_id}: {len(material_records)} records total, {changed} changed."
@@ -1002,21 +1184,25 @@ def generate_material_answer(detail_records: list, context: dict, question: str)
                 "supportingMetrics": {"topMaterials": []}
             }
         
-        # Build context for LLM
-        material_context = {
-            "topMaterials": top_materials,
-            "totalRecords": len(detail_records),
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=material_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = "Top materials by change count: "
+                answer += ", ".join([f"{mat[0]} ({mat[1]} changes)" for mat in top_materials]) + "."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = "Top materials by change count: "
@@ -1029,9 +1215,9 @@ def generate_material_answer(detail_records: list, context: dict, question: str)
 
 
 def generate_entity_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for entity questions (suppliers, materials, locations) using LLM with full blob context"""
+    """Generate answer for entity questions (suppliers, materials, locations) using cached LLM analysis"""
     from copilot_helpers import extract_location_id, filter_records_by_location, get_unique_suppliers, get_unique_materials, get_impact_ranking
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     location_id = extract_location_id(question)
     
@@ -1048,24 +1234,29 @@ def generate_entity_answer(detail_records: list, context: dict, question: str) -
         materials = get_unique_materials(location_records)
         changed = sum(1 for r in location_records if r.get("changed"))
         
-        # Build context for LLM
-        entity_context = {
-            "location": location_id,
-            "recordCount": len(location_records),
-            "suppliers": suppliers,
-            "materials": materials,
-            "changedCount": changed,
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=entity_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = f"Location {location_id}: {len(location_records)} records. "
+                if suppliers:
+                    answer += f"Suppliers: {', '.join(suppliers[:5])}. "
+                if materials:
+                    answer += f"Materials: {', '.join(materials[:5])}. "
+                answer += f"Changed: {changed}."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = f"Location {location_id}: {len(location_records)} records. "
@@ -1091,22 +1282,33 @@ def generate_entity_answer(detail_records: list, context: dict, question: str) -
         top_suppliers = impact["suppliers"][:5]
         top_materials = impact["materials"][:5]
         
-        # Build context for LLM
-        entity_context = {
-            "topSuppliers": top_suppliers,
-            "topMaterials": top_materials,
-            "totalRecords": len(detail_records),
-            "question": question
-        }
-        
-        # Try to use LLM with full blob context
+        # Try to use cached LLM analysis
         try:
-            llm_service = get_llm_service()
-            answer = llm_service.generate_response(
-                prompt=question,
-                context=entity_context,
-                detail_records=detail_records  # Pass ALL blob records for full context
-            )
+            snapshot_date = context.get("lastRefreshedAt", "current")
+            cached_analysis = get_cached_analysis(snapshot_date)
+            
+            if cached_analysis:
+                # Use cached analysis
+                llm_service = get_llm_service()
+                prompt = build_prompt_with_analysis(question, cached_analysis, context)
+                answer = llm_service.generate_response(
+                    prompt=prompt,
+                    context=context,
+                    detail_records=None
+                )
+            else:
+                # Fallback to template if no cached analysis
+                logging.warning("No cached analysis available, using template")
+                answer = "Top affected suppliers: "
+                if top_suppliers:
+                    answer += ", ".join([f"{s[0]} ({s[1]} changes)" for s in top_suppliers]) + ". "
+                else:
+                    answer += "None. "
+                answer += "Top affected materials: "
+                if top_materials:
+                    answer += ", ".join([f"{m[0]} ({m[1]} changes)" for m in top_materials]) + "."
+                else:
+                    answer += "None."
         except Exception as e:
             logging.warning(f"LLM generation failed: {str(e)}. Using template.")
             answer = "Top affected suppliers: "
@@ -1130,10 +1332,10 @@ def generate_entity_answer(detail_records: list, context: dict, question: str) -
 
 
 def generate_comparison_answer(detail_records: list, context: dict, question: str) -> dict:
-    """Generate answer for comparison questions using LLM with full blob context"""
+    """Generate answer for comparison questions using cached LLM analysis"""
     import re
     from copilot_helpers import filter_records_by_location
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     # Extract location IDs from question
     locations = re.findall(r'([A-Z]{2,}[0-9]{2,}_[A-Z0-9]{2,})', question)
@@ -1151,25 +1353,26 @@ def generate_comparison_answer(detail_records: list, context: dict, question: st
     changed1 = sum(1 for r in records1 if r.get("changed"))
     changed2 = sum(1 for r in records2 if r.get("changed"))
     
-    # Build context for LLM
-    comparison_context = {
-        "location1": loc1,
-        "location1Records": len(records1),
-        "location1Changed": changed1,
-        "location2": loc2,
-        "location2Records": len(records2),
-        "location2Changed": changed2,
-        "question": question
-    }
-    
-    # Try to use LLM with full blob context
+    # Try to use cached LLM analysis
     try:
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt=question,
-            context=comparison_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
+        
+        if cached_analysis:
+            # Use cached analysis
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis(question, cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to template if no cached analysis
+            logging.warning("No cached analysis available, using template")
+            answer = f"Comparison: {loc1} vs {loc2}. "
+            answer += f"{loc1}: {len(records1)} records, {changed1} changed. "
+            answer += f"{loc2}: {len(records2)} records, {changed2} changed."
     except Exception as e:
         logging.warning(f"LLM generation failed: {str(e)}. Using template.")
         answer = f"Comparison: {loc1} vs {loc2}. "
@@ -1190,30 +1393,38 @@ def generate_comparison_answer(detail_records: list, context: dict, question: st
 
 
 def generate_impact_answer(detail_records: list, context: dict) -> dict:
-    """Generate answer for impact questions using LLM with full blob context"""
+    """Generate answer for impact questions using cached LLM analysis"""
     from copilot_helpers import get_impact_ranking
-    from llm_service import get_llm_service
+    from llm_analysis_cache import get_cached_analysis, build_prompt_with_analysis
     
     impact = get_impact_ranking(detail_records)
     top_suppliers = impact["suppliers"][:3]
     top_materials = impact["materials"][:3]
     
-    # Build context for LLM
-    impact_context = {
-        "topSuppliers": top_suppliers,
-        "topMaterials": top_materials,
-        "totalRecords": len(detail_records),
-        "changedRecords": sum(1 for r in detail_records if r.get("changed"))
-    }
-    
-    # Try to use LLM with full blob context
+    # Try to use cached LLM analysis
     try:
-        llm_service = get_llm_service()
-        answer = llm_service.generate_response(
-            prompt="What is the impact of changes?",
-            context=impact_context,
-            detail_records=detail_records  # Pass ALL blob records for full context
-        )
+        snapshot_date = context.get("lastRefreshedAt", "current")
+        cached_analysis = get_cached_analysis(snapshot_date)
+        
+        if cached_analysis:
+            # Use cached analysis
+            llm_service = get_llm_service()
+            prompt = build_prompt_with_analysis("What is the impact of changes?", cached_analysis, context)
+            answer = llm_service.generate_response(
+                prompt=prompt,
+                context=context,
+                detail_records=None
+            )
+        else:
+            # Fallback to template if no cached analysis
+            logging.warning("No cached analysis available, using template")
+            answer = "Impact analysis: "
+            if top_suppliers:
+                answer += "Top suppliers affected: "
+                answer += ", ".join([f"{s[0]} ({s[1]} changes)" for s in top_suppliers]) + ". "
+            if top_materials:
+                answer += "Top materials affected: "
+                answer += ", ".join([f"{m[0]} ({m[1]} changes)" for m in top_materials]) + "."
     except Exception as e:
         logging.warning(f"LLM generation failed: {str(e)}. Using template.")
         answer = "Impact analysis: "
@@ -1238,6 +1449,7 @@ def explain(req: func.HttpRequest) -> func.HttpResponse:
     """
     Explainability endpoint - provides detailed explanations for dashboard insights.
     Analyzes questions and returns specific, data-driven answers.
+    Optimized: Uses only record keys instead of full records for LLM context.
     """
     if req.method == "OPTIONS":
         return _cors_response("", 200)

@@ -3,11 +3,15 @@ Business Rules and Domain Knowledge for Planning Intelligence Copilot.
 
 Defines all business logic, field meanings, and rules that ChatGPT must understand
 to provide accurate, domain-aware responses.
+
+SAP CODES REFERENCE:
+All SAP field codes used in the planning data are mapped to business meanings.
+See SAP_FIELD_DICTIONARY below for complete reference.
 """
 
-# SAP Field Dictionary with full business context
+# SAP Field Dictionary with full business context and actual SAP codes
 SAP_FIELD_DICTIONARY = {
-    # Location & Facility
+    # LOCATION & FACILITY FIELDS
     "LOCID": {
         "name": "Location ID",
         "description": "Unique identifier for a facility/location",
@@ -15,6 +19,36 @@ SAP_FIELD_DICTIONARY = {
         "example": "CYS20_F01C01",
         "business_context": "Used to group records by physical location. Part of composite key."
     },
+    "ZCOICIDZ": {
+        "name": "Facility/DC/Site Name",
+        "description": "Name or identifier of the facility/data center",
+        "type": "string",
+        "example": "Dallas DC",
+        "business_context": "Identifies the physical facility location"
+    },
+    "ZCOIMETROIDZ": {
+        "name": "Planning Metro",
+        "description": "Metropolitan area identifier",
+        "type": "string",
+        "example": "NYC",
+        "business_context": "Groups locations by metropolitan region"
+    },
+    "ZCOICOUNTRY": {
+        "name": "Country",
+        "description": "Country code",
+        "type": "string",
+        "example": "US",
+        "business_context": "Identifies country for location"
+    },
+    "ROC": {
+        "name": "ROC Region",
+        "description": "Regional Operations Center identifier",
+        "type": "string",
+        "example": "AMER",
+        "business_context": "Groups locations by regional operations center"
+    },
+    
+    # SUPPLIER FIELDS
     "LOCFR": {
         "name": "Supplier",
         "description": "Supplier code/identifier for this location",
@@ -22,8 +56,36 @@ SAP_FIELD_DICTIONARY = {
         "example": "10_AMER",
         "business_context": "Identifies the supplier responsible for this location. Used in supplier analysis."
     },
+    "LOCFRDESCR": {
+        "name": "Supplier Description",
+        "description": "Description or name of the supplier",
+        "type": "string",
+        "example": "Supplier A",
+        "business_context": "Human-readable supplier name"
+    },
+    "GSCSUPLDATE": {
+        "name": "Supplier Date",
+        "description": "Date associated with supplier information",
+        "type": "date",
+        "example": "2026-04-14",
+        "business_context": "Tracks supplier data freshness. Used to detect supplier issues."
+    },
+    "GSCPREVSUPLDATE": {
+        "name": "Previous Supplier Date",
+        "description": "Previous date associated with supplier information",
+        "type": "date",
+        "example": "2026-04-10",
+        "business_context": "Previous supplier data date for comparison"
+    },
+    "GSCSCPSUPCMT": {
+        "name": "SCP Supplier Comment",
+        "description": "Supplier comment from SCP system",
+        "type": "string",
+        "example": "On track",
+        "business_context": "Supplier feedback and status comments"
+    },
     
-    # Material & Product
+    # MATERIAL & PRODUCT FIELDS
     "PRDID": {
         "name": "Material ID",
         "description": "Unique identifier for a material/product",
@@ -39,15 +101,288 @@ SAP_FIELD_DICTIONARY = {
         "business_context": "Classifies materials by equipment type. Part of composite key. Used for category-based analysis."
     },
     
-    # Design Changes
-    "ZCOIBODVER": {
+    # DESIGN CHANGE FIELDS
+    "ZCOIBODVERZ": {
         "name": "BOD Version",
         "description": "Bill of Design (BOD) version number",
         "type": "string",
         "example": "1.0",
         "business_context": "Tracks design version. Change indicates design modification. Used to detect design changes."
     },
-    "ZCOIFORMFACT": {
+    "ZCOIFORMFACTZ": {
+        "name": "Form Factor",
+        "description": "Physical form factor/shape of the material",
+        "type": "string",
+        "example": "Standard",
+        "business_context": "Describes physical characteristics. Change indicates design modification. Used to detect design changes."
+    },
+    "GSCSCPBODVERSIONZ": {
+        "name": "SCP BOD Version",
+        "description": "BOD version in SCP system",
+        "type": "string",
+        "example": "1.0",
+        "business_context": "SCP system BOD version for comparison"
+    },
+    "GSCSCPFORMFACTORZ": {
+        "name": "SCP Form Factor",
+        "description": "Form factor in SCP system",
+        "type": "string",
+        "example": "Standard",
+        "business_context": "SCP system form factor for comparison"
+    },
+    
+    # FORECAST & QUANTITY FIELDS
+    "GSCFSCTQTY": {
+        "name": "Current Forecast Quantity",
+        "description": "Current forecasted quantity for this material",
+        "type": "number",
+        "example": 1000,
+        "business_context": "Latest forecast demand. Used to calculate forecast trends and deltas."
+    },
+    "GSCPREVFCSTQTY": {
+        "name": "Previous Forecast Quantity",
+        "description": "Previous forecasted quantity for this material",
+        "type": "number",
+        "example": 800,
+        "business_context": "Previous forecast demand. Used to calculate forecast trends and deltas."
+    },
+    "FCST_Delta Qty": {
+        "name": "Forecast Delta Quantity",
+        "description": "Change in forecast quantity (current - previous)",
+        "type": "number",
+        "example": 200,
+        "business_context": "Indicates forecast change magnitude"
+    },
+    "GSCFCSTTOSCPZ": {
+        "name": "Send Forecast to SCP",
+        "description": "Flag indicating if forecast should be sent to SCP",
+        "type": "boolean",
+        "example": True,
+        "business_context": "Controls forecast distribution to SCP system"
+    },
+    "GSCFCSTAPPROVALSCP": {
+        "name": "Forecast Approval",
+        "description": "Approval status of forecast",
+        "type": "string",
+        "example": "APPROVED",
+        "business_context": "Indicates if forecast has been approved"
+    },
+    
+    # SCHEDULE & ROJ (REQUIRED ON-HAND) FIELDS
+    "GSCCONROJDATE": {
+        "name": "Current ROJ Date",
+        "description": "Current Required On-hand date (ROJ) - when material is needed",
+        "type": "date",
+        "example": "2026-05-15",
+        "business_context": "Target delivery date. Used for schedule analysis and ROJ trending."
+    },
+    "GSCPREVROJNBD": {
+        "name": "Previous ROJ Date",
+        "description": "Previous Required On-hand date (ROJ)",
+        "type": "date",
+        "example": "2026-05-10",
+        "business_context": "Previous target delivery date. Used to calculate ROJ shifts."
+    },
+    "NBD_DeltaDays": {
+        "name": "ROJ Shift (Days)",
+        "description": "Number of days the ROJ has shifted (positive = delayed, negative = accelerated)",
+        "type": "number",
+        "example": 5,
+        "business_context": "Indicates schedule changes. Positive = delay, Negative = acceleration. Critical for supply chain planning."
+    },
+    "GSCROJDATEREASONCODEZ": {
+        "name": "ROJ Date Reason Code",
+        "description": "Reason code for ROJ change",
+        "type": "string",
+        "example": "DEMAND_CHANGE",
+        "business_context": "Explains why ROJ date changed"
+    },
+    "GSCROJNBDLASTCHANGEDDATE": {
+        "name": "ROJ Last Changed Date",
+        "description": "Date when ROJ was last modified",
+        "type": "date",
+        "example": "2026-04-09",
+        "business_context": "Tracks ROJ modification history"
+    },
+    "GSCROJNBDCREATIONDATE": {
+        "name": "ROJ Creation Date",
+        "description": "Date when ROJ was created",
+        "type": "date",
+        "example": "2026-04-01",
+        "business_context": "Tracks ROJ creation history"
+    },
+    "GSCSCPROJDATEZ": {
+        "name": "SCP ROJ Date",
+        "description": "ROJ date in SCP system",
+        "type": "date",
+        "example": "2026-05-15",
+        "business_context": "SCP system ROJ for comparison"
+    },
+    "GSCSCPROJINDZ": {
+        "name": "SCP ROJ Indicator",
+        "description": "ROJ indicator in SCP system",
+        "type": "string",
+        "example": "Y",
+        "business_context": "SCP system ROJ indicator"
+    },
+    "NBD_Change Type": {
+        "name": "ROJ Change Type",
+        "description": "Type of ROJ change (SHIFT, ACCELERATION, DELAY, etc.)",
+        "type": "string",
+        "example": "SHIFT",
+        "business_context": "Categorizes the type of schedule change"
+    },
+    
+    # APPROVAL & WORKFLOW FIELDS
+    "GSCCMAPPROVALFIRSTDATEZ": {
+        "name": "CM Approval First Date",
+        "description": "First approval date from Configuration Management",
+        "type": "date",
+        "example": "2026-04-01",
+        "business_context": "Tracks approval workflow"
+    },
+    "GSCCMAPPROVALLASTCHANGEDDATEZ": {
+        "name": "CM Approval Last Changed Date",
+        "description": "Last date CM approval was modified",
+        "type": "date",
+        "example": "2026-04-09",
+        "business_context": "Tracks approval modification history"
+    },
+    "GSCCMAPPROVALLASTCHANGEDVALUEZ": {
+        "name": "CM Approval Last Changed Value",
+        "description": "Last approval value/status",
+        "type": "string",
+        "example": "APPROVED",
+        "business_context": "Current approval status"
+    },
+    
+    # PLANNING & EXCEPTION FIELDS
+    "GSCPLANNINGEXCEPTIONZ": {
+        "name": "Planning Exception",
+        "description": "Planning exception code",
+        "type": "string",
+        "example": "NONE",
+        "business_context": "Indicates planning issues or exceptions"
+    },
+    "GSCLLEPLANNING": {
+        "name": "LLE Planning Needed",
+        "description": "Flag indicating if Low-Level Engineering planning is needed",
+        "type": "boolean",
+        "example": False,
+        "business_context": "Indicates need for detailed engineering planning"
+    },
+    "GSCCONSUMEINVFLG": {
+        "name": "Consume Inventory Flag",
+        "description": "Flag indicating if inventory should be consumed",
+        "type": "boolean",
+        "example": True,
+        "business_context": "Controls inventory consumption logic"
+    },
+    
+    # DATA QUALITY & TRACKING FIELDS
+    "Is_SupplierDateMissing": {
+        "name": "Supplier Date Missing",
+        "description": "Flag indicating if supplier date is missing",
+        "type": "boolean",
+        "example": False,
+        "business_context": "Indicates data quality issue with supplier information. Risk indicator."
+    },
+    "TINVALID": {
+        "name": "Invalid Flag",
+        "description": "Flag indicating if record is invalid",
+        "type": "boolean",
+        "example": False,
+        "business_context": "Marks invalid or corrupted records"
+    },
+    "LASTMODIFIEDBY": {
+        "name": "Last Modified By",
+        "description": "User who last modified the record",
+        "type": "string",
+        "example": "USER001",
+        "business_context": "Tracks record modification history"
+    },
+    "LASTMODIFIEDDATE": {
+        "name": "Last Modified Date",
+        "description": "Date when record was last modified",
+        "type": "date",
+        "example": "2026-04-09",
+        "business_context": "Tracks record modification date"
+    },
+    "CREATEDBY": {
+        "name": "Created By",
+        "description": "User who created the record",
+        "type": "string",
+        "example": "USER001",
+        "business_context": "Tracks record creation history"
+    },
+    "CREATEDDATE": {
+        "name": "Created Date",
+        "description": "Date when record was created",
+        "type": "date",
+        "example": "2026-04-01",
+        "business_context": "Tracks record creation date"
+    },
+    "#Version": {
+        "name": "Version",
+        "description": "Record version number",
+        "type": "number",
+        "example": 1,
+        "business_context": "Tracks record version history"
+    },
+    
+    # DEMAND STATUS FIELDS
+    "Is_New Demand": {
+        "name": "New Demand",
+        "description": "Flag indicating if this is a new demand",
+        "type": "boolean",
+        "example": False,
+        "business_context": "EXCLUDE from change analysis. New demands are not considered changes."
+    },
+    "Is_cancelled": {
+        "name": "Cancelled Demand",
+        "description": "Flag indicating if this demand has been cancelled",
+        "type": "boolean",
+        "example": False,
+        "business_context": "EXCLUDE from change analysis. Cancelled demands are not considered changes."
+    },
+    
+    # CHANGE TRACKING FIELDS
+    "Qty Changed Flag": {
+        "name": "Quantity Changed",
+        "description": "Flag indicating if forecast quantity has changed",
+        "type": "boolean",
+        "example": True,
+        "business_context": "TRUE if GSCFSCTQTY != GSCPREVFCSTQTY. Used for forecast trend analysis."
+    },
+    "Design Changed Flag": {
+        "name": "Design Changed",
+        "description": "Flag indicating if design has changed",
+        "type": "boolean",
+        "example": True,
+        "business_context": "TRUE if ZCOIBODVERZ or ZCOIFORMFACTZ changed. Used for design change analysis."
+    },
+    "ROJ Changed Flag": {
+        "name": "ROJ Changed",
+        "description": "Flag indicating if ROJ has changed",
+        "type": "boolean",
+        "example": True,
+        "business_context": "TRUE if GSCCONROJDATE != GSCPREVROJNBD. Used for schedule change analysis."
+    },
+    "Supplier Changed Flag": {
+        "name": "Supplier Changed",
+        "description": "Flag indicating if supplier has changed",
+        "type": "boolean",
+        "example": False,
+        "business_context": "Indicates supplier transition. Used for supplier change analysis."
+    },
+    "Risk_Flag": {
+        "name": "Risk Flag",
+        "description": "Flag indicating if record has risk",
+        "type": "boolean",
+        "example": True,
+        "business_context": "Indicates records with supply chain risk"
+    },
+}
         "name": "Form Factor",
         "description": "Physical form factor/shape of the material",
         "type": "string",

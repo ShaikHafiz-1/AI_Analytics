@@ -100,7 +100,7 @@ class BackendResponseTester:
             "details": []
         }
         self.session = requests.Session()
-        self.session.timeout = 10
+        self.session.timeout = 120  # 120 seconds - matches Ollama and Azure OpenAI timeouts
 
     def test_prompt(self, prompt: str, expected_category: str) -> Dict[str, Any]:
         """Test a single prompt against the backend."""

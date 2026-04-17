@@ -48,42 +48,96 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 def run_daily_refresh(
     location_id: str = None,
     material_group: str = None,
+    use_csv: bool = True,
 ) -> dict:
     """
-    Full pipeline — Blob Storage only:
-    1. Load current + previous from Azure Blob Storage
-    2. Normalize → Filter → Compare
+    Full pipeline — CSV or Blob Storage:
+    1. Load current data from CSV files or Azure Blob Storage
+    2. Normalize → Filter
     3. Build dashboard response
     4. Save snapshot
-    Returns the dashboard response dict.
+    
+    Note: Previous data is merged into current, so only one CSV file is loaded.
+    
+    Args:
+        location_id: Optional location filter
+        material_group: Optional material group filter
+        use_csv: If True, load from CSV files; if False, load from Blob Storage
+    
+    Returns:
+        The dashboard response dict.
     """
-    logger.info("Starting daily planning refresh from Blob Storage...")
+    data_source = "CSV files" if use_csv else "Blob Storage"
+    logger.info(f"Starting daily planning refresh from {data_source}...")
 
-    # Step 1: Load data from Blob
+    # Step 1: Load data from CSV or Blob (only current, previous is merged in)
     try:
-        from blob_loader import load_current_previous_from_blob
-        current_rows, previous_rows = load_current_previous_from_blob()
-        logger.info(f"Loaded {len(current_rows)} current rows, {len(previous_rows)} previous rows.")
+        if use_csv:
+            from csv_loader import load_current_from_csv
+            current_rows = load_current_from_csv()
+            logger.info(f"Loaded {len(current_rows)} current rows from CSV.")
+        else:
+            from blob_loader import load_current_previous_from_blob
+            current_rows, _ = load_current_previous_from_blob()
+            logger.info(f"Loaded {len(current_rows)} current rows from Blob Storage.")
     except Exception as e:
-        logger.error(f"Blob data load failed: {e}")
+        logger.error(f"Data load failed: {e}")
         raise
 
     # Step 2: Normalize
     current_records = normalize_rows(current_rows, is_current=True)
-    previous_records = normalize_rows(previous_rows, is_current=False)
 
     # Step 3: Filter (if specified)
     current_filtered = filter_records(current_records, location_id, material_group)
-    previous_filtered = filter_records(previous_records, location_id, material_group)
 
-    # Step 4: Compare
-    compared = compare_records(current_filtered, previous_filtered)
-    logger.info(f"Compared {len(compared)} records.")
-
-    # Step 5: Build dashboard response
+    # Step 4: Build dashboard response (convert PlanningRecord objects to ComparedRecord objects)
+    # Since we don't have previous data, create ComparedRecord objects from current records
+    from models import ComparedRecord
+    compared = []
+    for rec in current_filtered:
+        # rec is a PlanningRecord object
+        compared.append(ComparedRecord(
+            location_id=rec.location_id,
+            material_id=rec.material_id,
+            material_group=rec.material_group,
+            supplier_current=rec.supplier,
+            supplier_previous=None,
+            forecast_qty_current=rec.forecast_qty,
+            forecast_qty_previous=None,
+            roj_current=rec.roj,
+            roj_previous=None,
+            bod_current=rec.bod,
+            bod_previous=None,
+            ff_current=rec.ff,
+            ff_previous=None,
+            roc_region=rec.roc_region,
+            dc_site=rec.dc_site,
+            metro=rec.metro,
+            country=rec.country,
+            supplier_date=rec.supplier_date,
+            planning_exception=rec.planning_exception,
+            roj_reason_code=rec.roj_reason_code,
+            automation_reason=rec.automation_reason,
+            last_modified_by=rec.last_modified_by,
+            last_modified_date=rec.last_modified_date,
+            qty_changed=rec.fcst_delta_qty != 0 if rec.fcst_delta_qty else False,
+            roj_changed=rec.nbd_delta_days != 0 if rec.nbd_delta_days else False,
+            supplier_changed=rec.is_supplier_date_missing,
+            design_changed=False,
+            qty_delta=rec.fcst_delta_qty,
+            change_type='Changed' if (rec.fcst_delta_qty or rec.nbd_delta_days or rec.is_supplier_date_missing) else 'Unchanged',
+            risk_level='High' if rec.risk_flag == '1' else 'Normal',
+            is_new_demand=rec.is_new_demand,
+            is_cancelled=rec.is_cancelled,
+            risk_flag=rec.risk_flag,
+            fcst_delta_qty=rec.fcst_delta_qty,
+            nbd_delta_days=rec.nbd_delta_days,
+            is_supplier_date_missing=rec.is_supplier_date_missing,
+        ))
+    
     result = build_response(compared, [], location_id, material_group, data_mode="cached")
 
-    # Step 6: Save snapshot
+    # Step 5: Save snapshot
     save_snapshot(result)
     logger.info("Daily refresh complete. Snapshot saved.")
 

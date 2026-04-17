@@ -57,14 +57,54 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copilotReady, setCopilotReady] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevOpenRef = useRef(false);
   const prevEntityRef = useRef<string | null>(null);
+  const initializationAttemptedRef = useRef(false);
+
+  // Initialize copilot on first open
+  useEffect(() => {
+    if (isOpen && !initializationAttemptedRef.current && !copilotReady) {
+      initializationAttemptedRef.current = true;
+      const initializeCopilot = async () => {
+        try {
+          setIsInitializing(true);
+          setInitError(null);
+          
+          const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:7071/api";
+          const response = await fetch(`${apiUrl}/initialize-copilot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Initialization failed: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          console.log("✅ Copilot initialized:", data);
+          setCopilotReady(true);
+        } catch (error) {
+          console.error("❌ Copilot initialization failed:", error);
+          setInitError(error instanceof Error ? error.message : "Unknown error");
+          // Still allow questions even if initialization fails
+          setCopilotReady(true);
+        } finally {
+          setIsInitializing(false);
+        }
+      };
+      
+      initializeCopilot();
+    }
+  }, [isOpen, copilotReady]);
 
   useEffect(() => {
     const entityKey = selectedEntity ? `${selectedEntity.type}:${selectedEntity.item}` : null;
-    if (isOpen && (!prevOpenRef.current || entityKey !== prevEntityRef.current)) {
+    if (isOpen && copilotReady && (!prevOpenRef.current || entityKey !== prevEntityRef.current)) {
       const greeting: ChatMessage = { role: "assistant", content: buildGreeting(context, selectedEntity), timestamp: Date.now() };
       if (prevOpenRef.current && entityKey !== prevEntityRef.current) {
         setMessages((prev) => [...prev, greeting]);
@@ -74,7 +114,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
       prevEntityRef.current = entityKey;
     }
     prevOpenRef.current = isOpen;
-  }, [isOpen, context, selectedEntity]);
+  }, [isOpen, copilotReady, context, selectedEntity]);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { if (isOpen) setTimeout(() => inputRef.current?.focus(), 100); }, [isOpen]);
@@ -90,7 +130,7 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
       setLoading(false);
       setInput(question.trim());
       setMessages((prev) => [...prev, { role: "assistant", content: "⏱ Request timed out. Your question has been preserved — please try again.", timestamp: Date.now() }]);
-    }, 35000);
+    }, 120000);  // 120 seconds - allows for slower models
 
     try {
       const res = await fetchExplain({ question: question.trim(), context: { ...context, detailRecords: context.detailRecords || [] } });
@@ -156,6 +196,93 @@ export const CopilotPanel: React.FC<CopilotPanelProps> = ({ isOpen, onClose, con
   };
 
   if (!isOpen) return null;
+
+  // Show initialization state
+  if (isInitializing) {
+    return (
+      <div className="fixed top-0 right-0 h-full w-[400px] bg-[#161b22] border-l border-[#21262d] flex flex-col z-40 shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#21262d]">
+          <div className="flex items-center gap-2">
+            <span className="text-blue-400 text-lg">✦</span>
+            <span className="text-sm font-semibold text-white">Planning Copilot</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition text-lg leading-none" aria-label="Close">×</button>
+        </div>
+        
+        <div className="flex-1 flex flex-col items-center justify-center px-4 py-6">
+          <div className="w-12 h-12 border-4 border-blue-900/30 border-t-blue-400 rounded-full animate-spin mb-4"></div>
+          <p className="text-sm text-gray-300 text-center mb-2">🔄 Initializing Copilot</p>
+          <p className="text-xs text-gray-500 text-center">Analyzing dataset with AI...</p>
+          <p className="text-xs text-gray-600 text-center mt-4">This happens once when you load the dashboard</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state (but still allow questions)
+  if (initError) {
+    return (
+      <div className="fixed top-0 right-0 h-full w-[400px] bg-[#161b22] border-l border-[#21262d] flex flex-col z-40 shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#21262d]">
+          <div className="flex items-center gap-2">
+            <span className="text-blue-400 text-lg">✦</span>
+            <span className="text-sm font-semibold text-white">Planning Copilot</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white transition text-lg leading-none" aria-label="Close">×</button>
+        </div>
+        
+        <div className="px-4 py-3 border-b border-[#21262d] bg-yellow-900/20 border-yellow-500/30">
+          <p className="text-xs text-yellow-400">⚠️ Initialization warning: {initError}</p>
+          <p className="text-xs text-yellow-600 mt-1">Questions will still work, but may be slower</p>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
+          {messages.map((msg, i) => (
+            <div key={i}>
+              <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-xl px-3 py-2 text-xs whitespace-pre-wrap leading-relaxed ${
+                  msg.role === "user" ? "bg-blue-900/40 text-blue-100 border border-blue-500/30" : "bg-[#0d1117] text-gray-300 border border-[#21262d]"
+                }`}>
+                  {msg.content}
+                </div>
+              </div>
+              {msg.role === "assistant" && msg.followUps && msg.followUps.length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-2 ml-1">
+                  {msg.followUps.slice(0, 1).map((fu, j) => (
+                    <button key={j} onClick={() => sendMessage(fu)}
+                      className="text-[10px] px-2 py-0.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-400 hover:text-blue-400 hover:border-blue-500/30 transition text-left">
+                      {fu}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-[#0d1117] border border-[#21262d] rounded-xl px-3 py-2 text-xs text-gray-400">
+                <span className="animate-pulse">Thinking…</span>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input */}
+        <div className="px-4 py-3 border-t border-[#21262d] flex gap-2 items-end">
+          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+            placeholder="Ask about the planning data…" rows={2}
+            className="flex-1 bg-[#0d1117] border border-[#21262d] rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
+            disabled={loading} />
+          <button onClick={() => sendMessage(input)} disabled={loading || !input.trim()}
+            className="px-3 py-2 rounded-lg bg-blue-900/30 border border-blue-500/30 text-blue-400 text-xs font-medium hover:bg-blue-900/50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+            Send
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const starters = buildSmartPrompts(context, selectedEntity);
 
